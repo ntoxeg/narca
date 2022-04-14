@@ -1,7 +1,7 @@
 import os
+import socket
 import subprocess
 from pathlib import Path
-from socket import socket
 
 import griddly  # noqa
 import gym
@@ -19,14 +19,21 @@ NARS_OPERATIONS = {
 }
 
 
-def send_input(socket: socket, input_: str) -> None:
+def send_input(socket: socket.socket, input_: str) -> None:
     """Send input to NARS server"""
     socket.sendto((input_ + "\0").encode(), ("127.0.0.1", 50000))
 
 
 def get_output(process: subprocess.Popen) -> str:
     """Get output from NARS server"""
-    return process.stdout.readline().decode().strip()
+    return process.stdout.readline().strip()
+
+
+def expect_output(process: subprocess.Popen, targets: list[str]) -> str:
+    output = get_output(process)
+    while not any(target in output for target in targets):
+        output = get_output(process)
+    return output
 
 
 def narsify(observation):
@@ -45,24 +52,28 @@ def narsify_from_state(env_state: dict):
 
 def to_gym_action(nars_output):
     """Convert NARS output to a Gym action"""
-    return NARS_OPERATIONS[nars_output]
+    matches = [target in nars_output for target in NARS_OPERATIONS.keys()]
+    action_id = NARS_OPERATIONS.values()[matches.index(True)]
+    action = [0, action_id]  # 0 is for "move"
+
+    return action
 
 
-def setup_nars_ops(socket: socket):
+def setup_nars_ops(socket: socket.socket):
     """Setup NARS operations"""
     for op in NARS_OPERATIONS:
         send_input(socket, f"*setopname {NARS_OPERATIONS[op]} ^{op}")
 
 
-def setup_nars(socket: socket):
+def setup_nars(socket: socket.socket):
     """Send NARS settings"""
     setup_nars_ops(socket)
     send_input(socket, "*motorbabbling=0.1")
-    send_input(socket, "*volume=0")
+    # send_input(socket, "*volume=0")
 
 
 if __name__ == "__main__":
-    sock = socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
     process_cmd = [
@@ -81,7 +92,7 @@ if __name__ == "__main__":
     setup_nars(sock)
 
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
-    obs, _ = env.reset()
+    obs = env.reset()
     env_state = env.get_state()
 
     # For now we will just use `get_state` to get the state
@@ -95,10 +106,11 @@ if __name__ == "__main__":
         # send_input(sock, narsify_from_state(env_state))
 
         # determine an action to take from NARS
-        nars_output = get_output(process)
+        nars_output = expect_output(process, NARS_OPERATIONS.keys())
 
         obs, reward, done, info = env.step(to_gym_action(nars_output))
         # env.render()  # Renders the environment from the perspective of a single player
+        env_state = env.get_state()
 
         env.render(observer="global")  # Renders the entire environment
 
