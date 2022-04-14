@@ -1,0 +1,73 @@
+*.swp
+*.pyc
+*.py~
+.cache
+.pytest_cache/
+.last_checked
+
+# Setuptools distribution and build folders.
+/dist/
+/build
+
+# Virtualenv
+/env
+
+# Python egg metadata, regenerated from source files by setuptools.
+/*.egg-info
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.sublime-project
+*.sublime-workspace
+
+logs/
+*.log
+
+.ipynb_checkpoints
+ghostdriver.log
+
+junk
+MUJOCO_LOG.txt
+
+rllab_mujoco
+
+tutorial/*.html
+
+# IDE files
+.eggs
+.tox
+
+# PyCharm project files
+.idea
+vizdoom.ini
+
+# VS Code settings
+.vscode
+
+# osx generated files
+.DS_Store
+.DS_Store?
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea
+
+# tools/trust-doc-nbs
+docs_src/.last_checked
+
+# symlinks to fastai
+docs_src/fastai
+tools/fastai
+
+# link checker
+checklink/cookies.txt
+.envrc
+
+# mypy
+.mypy_cache/
+
+# TensorBoard events
+runs/
