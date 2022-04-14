@@ -34,9 +34,31 @@ def narsify(observation):
     return ",".join(str(x) for x in observation)
 
 
+def narsify_from_state(env_state: dict):
+    """Produce NARS statements from environment semantic state"""
+    object_beliefs = [
+        f"<{obj['Name']} --> [loc_x{obj['Location'][0]}_y{obj['Location'][1]}]>. :|:"
+        for obj in env_state["Objects"]
+    ]
+    return object_beliefs
+
+
 def to_gym_action(nars_output):
     """Convert NARS output to a Gym action"""
     return NARS_OPERATIONS[nars_output]
+
+
+def setup_nars_ops(socket: socket):
+    """Setup NARS operations"""
+    for op in NARS_OPERATIONS:
+        send_input(socket, f"*setopname {NARS_OPERATIONS[op]} ^{op}")
+
+
+def setup_nars(socket: socket):
+    """Send NARS settings"""
+    setup_nars_ops(socket)
+    send_input(socket, "*motorbabbling=0.1")
+    send_input(socket, "*volume=0")
 
 
 if __name__ == "__main__":
@@ -55,13 +77,23 @@ if __name__ == "__main__":
         process_cmd, stdout=subprocess.PIPE, universal_newlines=True
     )
 
+    # setup NARS
+    setup_nars(sock)
+
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
     obs, _ = env.reset()
+    env_state = env.get_state()
 
-    # Replace with your own control algorithm!
+    # For now we will just use `get_state` to get the state
     for s in range(100):
         # send the observation to NARS
-        send_input(sock, narsify(obs))
+        # send_input(sock, narsify(obs))
+        state_narsese = narsify_from_state(env_state)
+        # TODO: I am not sure if I can only send single lines or not.
+        for statement in state_narsese:
+            send_input(sock, statement)
+        # send_input(sock, narsify_from_state(env_state))
+
         # determine an action to take from NARS
         nars_output = get_output(process)
 
