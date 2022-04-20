@@ -66,6 +66,7 @@ def expect_output(
         else:
             send_input(sock, "0")
         output = get_output(process)
+    ic("Got a valid operation.")
     return output
 
 
@@ -105,7 +106,7 @@ def setup_nars_ops(socket: socket.socket):
     """Setup NARS operations"""
     for op in NARS_OPERATIONS:
         send_input(socket, f"*setopname {NARS_OPERATIONS[op]} {op}")
-    # send_input(socket, f"*babblingops={len(NARS_OPERATIONS)}")
+    send_input(socket, f"*babblingops={len(NARS_OPERATIONS)}")
 
 
 # def setup_nars_ops_process(process: subprocess.Popen):
@@ -119,7 +120,7 @@ def setup_nars(socket: socket.socket):
     """Send NARS settings"""
     send_input(socket, "*reset")
     setup_nars_ops(socket)
-    send_input(socket, "*motorbabbling=false")
+    send_input(socket, "*motorbabbling=0.3")
     # send_input(socket, "*volume=0")
 
 
@@ -133,8 +134,12 @@ def setup_nars(socket: socket.socket):
 
 def goal_satisfied(env_state: dict) -> bool:
     """Check if the goal has been reached"""
-    avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
+    try:
+        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
+        goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
+    except StopIteration:
+        ic("No avatar or goal found. Goal unsatisfiable.")
+        return False
     return avatar["Location"] == goal["Location"]
 
 
@@ -160,6 +165,7 @@ if __name__ == "__main__":
         stdout=subprocess.PIPE,
         universal_newlines=True,
     )
+    sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
 
     # setup NARS
     setup_nars(sock)
@@ -216,3 +222,4 @@ if __name__ == "__main__":
             num_episodes += 1
 
     print(f"Average total reward per episode: {total_reward / num_episodes}.")
+    env.close()  # Call explicitly to avoid exception on quit
