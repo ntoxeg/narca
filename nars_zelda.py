@@ -1,4 +1,6 @@
+import logging
 import os
+import random
 import socket
 import subprocess
 from pathlib import Path
@@ -7,6 +9,11 @@ from time import sleep
 import griddly  # noqa
 import gym
 from griddly import gd
+from icecream import ic
+
+# setup a logger for nars output
+logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
+logger = logging.getLogger("nars")
 
 NARS_PATH = Path(os.environ["NARS_HOME"])
 IP = "127.0.0.1"
@@ -25,28 +32,35 @@ def send_input(socket: socket.socket, input_: str) -> None:
     socket.sendto((input_ + "\0").encode(), (IP, PORT))
 
 
-def send_input_process(process: subprocess.Popen, input_: str):
-    """Send input to NARS process"""
-    stdin = process.stdin
-    stdin.write(input_ + "\n")
+# def send_input_process(process: subprocess.Popen, input_: str):
+#     """Send input to NARS process"""
+#     stdin = process.stdin
+#     stdin.write(input_ + "\n")
 
 
 def get_output(process: subprocess.Popen) -> str:
     """Get output from NARS server"""
-    return process.stdout.readline().strip()
+    output = process.stdout.readline().strip()
+    logger.debug(output)
+    return output
 
 
 def expect_output(
     sock: socket.socket,
     process: subprocess.Popen,
     targets: list[str],
+    patience: int = 10,
     goal_reentry: str = None,
 ) -> str:
     output = get_output(process)
     while not any(target in output for target in targets):
-        print("Output is:", output)
-        print("Waiting for:", targets)
-        sleep(1)
+        if patience <= 0:
+            ic("Patience has run out, returning None.")
+            return None
+        patience -= 1
+        # ic("Output is:", output)
+        # ic("Waiting for:", targets)
+        # sleep(1)
         if goal_reentry is not None:
             send_input(sock, goal_reentry)
         else:
@@ -91,29 +105,30 @@ def setup_nars_ops(socket: socket.socket):
     """Setup NARS operations"""
     for op in NARS_OPERATIONS:
         send_input(socket, f"*setopname {NARS_OPERATIONS[op]} {op}")
+    # send_input(socket, f"*babblingops={len(NARS_OPERATIONS)}")
 
 
-def setup_nars_ops_process(process: subprocess.Popen):
-    """Setup NARS operations"""
-    stdin = process.stdin
-    for op in NARS_OPERATIONS:
-        stdin.write(f"*setopname {NARS_OPERATIONS[op]} {op}\n")
+# def setup_nars_ops_process(process: subprocess.Popen):
+#     """Setup NARS operations"""
+#     stdin = process.stdin
+#     for op in NARS_OPERATIONS:
+#         stdin.write(f"*setopname {NARS_OPERATIONS[op]} {op}\n")
 
 
 def setup_nars(socket: socket.socket):
     """Send NARS settings"""
     send_input(socket, "*reset")
     setup_nars_ops(socket)
-    send_input(socket, "*motorbabbling=0.3")
+    send_input(socket, "*motorbabbling=false")
     # send_input(socket, "*volume=0")
 
 
-def setup_nars_process(process: subprocess.Popen):
-    """Setup NARS process"""
-    stdin = process.stdin
-    stdin.write("*reset\n")
-    setup_nars_ops_process(process)
-    stdin.write("*motorbabbling=0.3\n")
+# def setup_nars_process(process: subprocess.Popen):
+#     """Setup NARS process"""
+#     stdin = process.stdin
+#     stdin.write("*reset\n")
+#     setup_nars_ops_process(process)
+#     stdin.write("*motorbabbling=0.3\n")
 
 
 def goal_satisfied(env_state: dict) -> bool:
@@ -152,12 +167,15 @@ if __name__ == "__main__":
     persistent_goal = f"{goal_symbol}! :|:"
     goal_achievement = f"<(<avatar --> [?1]> &/ <goal --> [?1]>) =/> {goal_symbol}>."
     send_input(sock, goal_achievement)
+    logger.info(get_output(process))
 
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
     obs = env.reset()
     env_state = env.get_state()
 
     # For now we will just use `get_state` to get the state
+    total_reward = 0.0
+    num_episodes = 1
     for s in range(100):
         # send the observation to NARS
         # send_input(sock, narsify(obs))
@@ -165,27 +183,36 @@ if __name__ == "__main__":
         # TODO: I am not sure if I can only send single lines or not.
         for statement in state_narsese:
             send_input(sock, statement)
+            get_output(process)
         # send_input(sock, narsify_from_state(env_state))
 
-        print(get_output(process))
         send_input(sock, persistent_goal)
-        print(get_output(process))
+        get_output(process)
 
-        # determine an action to take from NARS
+        # determine the action to take from NARS
         nars_output = expect_output(
             sock, process, NARS_OPERATIONS.keys(), goal_reentry=persistent_goal
         )
-        # nars_output = "^move_forwards"
+
+        if nars_output is None:
+            nars_output = random.choice(list(NARS_OPERATIONS.keys()))
+            send_input(sock, f"{nars_output}. :|:")
 
         obs, reward, done, info = env.step(to_gym_action(nars_output))
+        total_reward += reward
         # env.render()  # Renders the environment from the perspective of a single player
         env_state = env.get_state()
 
         if goal_satisfied(env_state):
-            print("Goal achieved!")
+            ic("Goal achieved!")
             send_input(sock, f"{goal_symbol}. :|:")
+            get_output(process)
 
         env.render(observer="global")  # Renders the entire environment
+        sleep(1)
 
         if done:
             env.reset()
+            num_episodes += 1
+
+    print(f"Average total reward per episode: {total_reward / num_episodes}.")
