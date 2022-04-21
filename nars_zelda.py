@@ -50,6 +50,7 @@ def expect_output(
     sock: socket.socket,
     process: subprocess.Popen,
     targets: list[str],
+    think_ticks: int = 10,
     patience: int = 10,
     goal_reentry: str = None,
 ) -> str:
@@ -59,13 +60,14 @@ def expect_output(
             ic("Patience has run out, returning None.")
             return None
         patience -= 1
+
         # ic("Output is:", output)
         # ic("Waiting for:", targets)
         # sleep(1)
         if goal_reentry is not None:
             send_input(sock, goal_reentry)
-        else:
-            send_input(sock, "0")
+
+        send_input(sock, str(think_ticks))
         output = get_output(process)
     ic("Got a valid operation.")
     return output
@@ -74,6 +76,11 @@ def expect_output(
 def narsify(observation):
     """Convert a Gym observation to NARS input"""
     return ",".join(str(x) for x in observation)
+
+
+def loc(pos: tuple[int, int]) -> str:
+    """Turn coordinates into a location string"""
+    return f"loc_x{pos[0]}_y{pos[1]}"
 
 
 def narsify_from_state(env_state: dict):
@@ -86,11 +93,13 @@ def narsify_from_state(env_state: dict):
         if obj["Name"] == "wall"
     ]
     object_beliefs = [
-        f"<{obj['Name']} --> [loc_x{obj['Location'][0]}_y{obj['Location'][1]}]>. :|:"
+        f"<({ext(obj['Name'])} * {loc(obj['Location'])}) --> at>. :|:"
         for obj in env_state["Objects"]
         if obj["Name"] != "wall"
     ]
-    wall_beliefs = [f"<wall{i} --> [loc_x{pos[0]}_y{pos[1]}]>. :|:" for i, pos in walls]
+    wall_beliefs = [
+        f"<({ext('wall' + str(i))} * {loc(pos)}) --> at>. :|:" for i, pos in walls
+    ]
     return object_beliefs + wall_beliefs
 
 
@@ -144,6 +153,41 @@ def goal_satisfied(env_state: dict) -> bool:
     return avatar["Location"] == goal["Location"]
 
 
+def ext(s: str) -> str:
+    """Just a helper to wrap strings in '{}'"""
+    return "{" + s + "}"
+
+
+def make_goal(sock: socket.socket, env_state: dict, goal_symbol: str) -> None:
+    """Make an explicit goal using the position of an object"""
+    goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
+    goal_loc = loc(goal["Location"])
+    goal_achievement = f"<<({ext('avatar')} * {goal_loc}) --> at> =/> {goal_symbol}>."
+    send_input(sock, goal_achievement)
+
+
+def send_observation(
+    sock: socket.socket, process: subprocess.Popen, env_state: dict, complete=False
+) -> None:
+    """Send observation to NARS
+
+    Args:
+        sock: socket to send observation to
+        process: NARS process
+        env_state: environment state
+        complete: whether to send the complete observation (include wall beliefs)
+    """
+    # send the observation to NARS
+    # send_input(sock, narsify(obs))
+    state_narsese = narsify_from_state(env_state)
+    # TODO: I am not sure if I can only send single lines or not.
+    statements = [st for st in state_narsese if "wall" not in st or complete]
+    for statement in statements:
+        send_input(sock, statement)
+        get_output(process)
+    # send_input(sock, narsify_from_state(env_state))
+
+
 if __name__ == "__main__":
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -172,8 +216,8 @@ if __name__ == "__main__":
     setup_nars(sock)
     goal_symbol = "AT_DOOR"
     persistent_goal = f"{goal_symbol}! :|:"
-    goal_achievement = f"<(<avatar --> [?1]> &/ <goal --> [?1]>) =/> {goal_symbol}>."
-    send_input(sock, goal_achievement)
+    # goal_achievement = f"<(<avatar --> [?1]> &/ <goal --> [?1]>) =/> {goal_symbol}>."
+    # send_input(sock, goal_achievement)
     logger.info(get_output(process))
 
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
@@ -181,24 +225,22 @@ if __name__ == "__main__":
     # For now we will just use `get_state` to get the state
     env_state = env.get_state()
 
+    # generate an explicit position goal
+    make_goal(sock, env_state, goal_symbol)
+
+    # send first observation (complete)
+    send_observation(sock, process, env_state, complete=True)
+
     total_reward = 0.0
     episode_reward = 0.0
     num_episodes = 1
     tb_writer = SummaryWriter(comment="-nars-zelda")
+    # TRAINING LOOP
     for s in range(1000):
-        # send the observation to NARS
-        # send_input(sock, narsify(obs))
-        state_narsese = narsify_from_state(env_state)
-        # TODO: I am not sure if I can only send single lines or not.
-        for statement in state_narsese:
-            send_input(sock, statement)
-            get_output(process)
-        # send_input(sock, narsify_from_state(env_state))
-
-        send_input(sock, persistent_goal)
-        get_output(process)
+        send_observation(sock, process, env_state)
 
         # determine the action to take from NARS
+        send_input(sock, persistent_goal)
         nars_output = expect_output(
             sock, process, NARS_OPERATIONS.keys(), goal_reentry=persistent_goal
         )
@@ -227,5 +269,6 @@ if __name__ == "__main__":
             num_episodes += 1
             episode_reward = 0.0
 
+    # tb_writer.add_scalar("train/episode_reward", episode_reward, num_episodes)
     print(f"Average total reward per episode: {total_reward / num_episodes}.")
     env.close()  # Call explicitly to avoid exception on quit
