@@ -10,6 +10,7 @@ import griddly  # noqa
 import gym
 from griddly import gd
 from icecream import ic
+from tensorboardX import SummaryWriter
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
@@ -177,12 +178,14 @@ if __name__ == "__main__":
 
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
     obs = env.reset()
+    # For now we will just use `get_state` to get the state
     env_state = env.get_state()
 
-    # For now we will just use `get_state` to get the state
     total_reward = 0.0
+    episode_reward = 0.0
     num_episodes = 1
-    for s in range(100):
+    tb_writer = SummaryWriter(comment="-nars-zelda")
+    for s in range(1000):
         # send the observation to NARS
         # send_input(sock, narsify(obs))
         state_narsese = narsify_from_state(env_state)
@@ -205,7 +208,7 @@ if __name__ == "__main__":
             send_input(sock, f"{nars_output}. :|:")
 
         obs, reward, done, info = env.step(to_gym_action(nars_output))
-        total_reward += reward
+        episode_reward += reward
         # env.render()  # Renders the environment from the perspective of a single player
         env_state = env.get_state()
 
@@ -218,8 +221,11 @@ if __name__ == "__main__":
         sleep(1)
 
         if done:
+            total_reward += episode_reward
+            tb_writer.add_scalar("train/episode_reward", episode_reward, num_episodes)
             env.reset()
             num_episodes += 1
+            episode_reward = 0.0
 
     print(f"Average total reward per episode: {total_reward / num_episodes}.")
     env.close()  # Call explicitly to avoid exception on quit

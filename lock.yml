@@ -37,6 +37,7 @@ dependencies:
   - libffi=3.4.2=h0d85af4_5
   - libiconv=1.16=haf1e3a3_0
   - libpng=1.6.37=ha441bb4_0
+  - libprotobuf=3.19.4=hcf210ce_0
   - libtiff=4.2.0=h87d7836_0
   - libvpx=1.11.0=he49afe7_3
   - libwebp=1.2.2=h56c3ce4_0
@@ -63,6 +64,7 @@ dependencies:
   - pickleshare=0.7.5=pyhd3eb1b0_1003
   - pip=21.2.4=py39hecd8cb5_0
   - prompt-toolkit=3.0.20=pyhd3eb1b0_0
+  - protobuf=3.19.4=py39h9fcab8e_0
   - ptyprocess=0.7.0=pyhd3eb1b0_2
   - pure_eval=0.2.2=pyhd3eb1b0_0
   - pyglet=1.5.16=py39h6e9494a_1
@@ -77,6 +79,7 @@ dependencies:
   - sqlite=3.38.2=h707629a_0
   - stack_data=0.2.0=pyhd3eb1b0_0
   - svt-av1=0.9.0=he49afe7_0
+  - tensorboardx=2.5=pyhd8ed1ab_0
   - tk=8.6.12=h5dbffcc_0
   - tornado=6.1=py39h9ed2024_0
   - traitlets=5.1.1=pyhd3eb1b0_0
