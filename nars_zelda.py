@@ -2,12 +2,12 @@ import logging
 import os
 import random
 import socket
-import subprocess
 from pathlib import Path
 from time import sleep
 
 import griddly  # noqa
 import gym
+import pexpect
 from griddly import gd
 from icecream import ic
 from tensorboardX import SummaryWriter
@@ -39,26 +39,35 @@ def send_input(socket: socket.socket, input_: str) -> None:
 #     stdin.write(input_ + "\n")
 
 
-def get_output(process: subprocess.Popen) -> str:
+def get_output(process: pexpect.spawn) -> str:
     """Get output from NARS server"""
-    output = process.stdout.readline().strip()
+    # outlines = process.stdout.readlines()
+    # output = "\n".join(outlines)
+    # process.sendline("0")
+    # HACK: fuck it, just use sock to send input
+    send_input(sock, "0")
+    process.expect(["done with 0 additional inference steps.", pexpect.EOF])
+    # process.expect(pexpect.EOF)
+    output = "\n".join(
+        [s.strip().decode("utf-8") for s in process.before.split(b"\n")][2:-3]  # type: ignore
+    )
     logger.debug(output)
     return output
 
 
 def expect_output(
     sock: socket.socket,
-    process: subprocess.Popen,
+    process: pexpect.spawn,
     targets: list[str],
     think_ticks: int = 10,
     patience: int = 10,
-    goal_reentry: str = None,
+    goal_reentry: str = None,  # type: ignore TODO: migrate to Python 3.10 ASAP
 ) -> str:
     output = get_output(process)
     while not any(target in output for target in targets):
         if patience <= 0:
             ic("Patience has run out, returning None.")
-            return None
+            return None  # type: ignore
         patience -= 1
 
         # ic("Output is:", output)
@@ -167,7 +176,7 @@ def make_goal(sock: socket.socket, env_state: dict, goal_symbol: str) -> None:
 
 
 def send_observation(
-    sock: socket.socket, process: subprocess.Popen, env_state: dict, complete=False
+    sock: socket.socket, process: pexpect.spawn, env_state: dict, complete=False
 ) -> None:
     """Send observation to NARS
 
@@ -205,11 +214,12 @@ if __name__ == "__main__":
     #     (NARS_PATH / "NAR").as_posix(),
     #     "shell",
     # ]
-    process = subprocess.Popen(
-        process_cmd,
-        stdout=subprocess.PIPE,
-        universal_newlines=True,
-    )
+    # process = subprocess.Popen(
+    #     process_cmd,
+    #     stdout=subprocess.PIPE,
+    #     universal_newlines=True,
+    # )
+    process = pexpect.spawn(process_cmd[0], process_cmd[1:])
     sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
 
     # setup NARS
@@ -223,7 +233,7 @@ if __name__ == "__main__":
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
     obs = env.reset()
     # For now we will just use `get_state` to get the state
-    env_state = env.get_state()
+    env_state = env.get_state()  # type: ignore
 
     # generate an explicit position goal
     make_goal(sock, env_state, goal_symbol)
@@ -237,12 +247,14 @@ if __name__ == "__main__":
     tb_writer = SummaryWriter(comment="-nars-zelda")
     # TRAINING LOOP
     for s in range(1000):
-        send_observation(sock, process, env_state)
+        send_observation(
+            sock, process, env_state
+        )  # TODO: remove duplicate first observation
 
         # determine the action to take from NARS
         send_input(sock, persistent_goal)
         nars_output = expect_output(
-            sock, process, NARS_OPERATIONS.keys(), goal_reentry=persistent_goal
+            sock, process, list(NARS_OPERATIONS.keys()), goal_reentry=persistent_goal
         )
 
         if nars_output is None:
@@ -252,14 +264,14 @@ if __name__ == "__main__":
         obs, reward, done, info = env.step(to_gym_action(nars_output))
         episode_reward += reward
         # env.render()  # Renders the environment from the perspective of a single player
-        env_state = env.get_state()
+        env_state = env.get_state()  # type: ignore
 
         if goal_satisfied(env_state):
             ic("Goal achieved!")
             send_input(sock, f"{goal_symbol}. :|:")
             get_output(process)
 
-        env.render(observer="global")  # Renders the entire environment
+        env.render(observer="global")  # type: ignore # Renders the entire environment
         sleep(1)
 
         if done:
