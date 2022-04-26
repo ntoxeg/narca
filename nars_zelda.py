@@ -4,6 +4,7 @@ import random
 import socket
 from pathlib import Path
 from time import sleep
+from typing import Optional
 
 import griddly  # noqa
 import gym
@@ -61,12 +62,12 @@ def expect_output(
     targets: list[str],
     think_ticks: int = 10,
     patience: int = 10,
-    goal_reentry: str = None,  # type: ignore TODO: migrate to Python 3.10 ASAP
-) -> str:
+    goal_reentry: Optional[str] = None,
+) -> Optional[str]:
     output = get_output(process)
     while not any(target in output for target in targets):
         if patience <= 0:
-            ic("Patience has run out, returning None.")
+            # ic("Patience has run out, returning None.")
             return None  # type: ignore
         patience -= 1
 
@@ -78,7 +79,7 @@ def expect_output(
 
         send_input(sock, str(think_ticks))
         output = get_output(process)
-    ic("Got a valid operation.")
+    # ic("Got a valid operation.")
     return output
 
 
@@ -197,6 +198,63 @@ def send_observation(
     # send_input(sock, narsify_from_state(env_state))
 
 
+def demo_reach_loc(
+    symbol: str, agent_pos: tuple[int, int], pos: tuple[int, int]
+) -> None:
+    """Demonstrate reaching a location"""
+    actions_to_take = pathfind(agent_pos, pos)
+    for action in actions_to_take:
+        send_input(sock, f"{action}. :|:")
+        obs, _, done, _ = env.step(to_gym_action(action))
+        send_observation(sock, process, env.get_state())  # type: ignore
+
+        env.render(observer="global")  # type: ignore
+        sleep(1)
+        if done:
+            env.reset()
+            demo_reach_loc(symbol, agent_pos, pos)
+    send_input(sock, f"{symbol}. :|:")
+
+
+def pathfind(agent_pos: tuple[int, int], pos: tuple[int, int]) -> list[str]:
+    if pos == (3, 2):
+        return [
+            "^rotate_left",
+            "^move_forwards",
+            "^move_forwards",
+        ]
+    elif pos == (8, 5):
+        return [
+            "^move_backwards",
+            "^move_backwards",
+            "^move_backwards",
+            "^move_backwards",
+            "^move_backwards",
+            "^rotate_left",
+            "^move_forwards",
+            "^move_forwards",
+            "^move_forwards",
+        ]
+    elif pos == (2, 5):
+        return [
+            "^rotate_right",
+            "^move_forwards",
+            "^move_forwards",
+            "^move_forwards",
+            "^move_forwards",
+            "^move_forwards",
+            "^move_forwards",
+        ]
+    return ["^move_forwards"]
+
+
+def make_loc_goal(sock, pos, goal_symbol):
+    """Make a goal for a location"""
+    goal_loc = loc(pos)
+    goal_achievement = f"<<({ext('avatar')} * {goal_loc}) --> at> =/> {goal_symbol}>."
+    send_input(sock, goal_achievement)
+
+
 if __name__ == "__main__":
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -224,7 +282,9 @@ if __name__ == "__main__":
 
     # setup NARS
     setup_nars(sock)
-    goal_symbol = "AT_DOOR"
+    # goal_symbol = "AT_DOOR"
+    # goal_symbol = "REACH_LOC1"
+    goal_symbol = "GOT_REWARD"
     persistent_goal = f"{goal_symbol}! :|:"
     # goal_achievement = f"<(<avatar --> [?1]> &/ <goal --> [?1]>) =/> {goal_symbol}>."
     # send_input(sock, goal_achievement)
@@ -236,17 +296,34 @@ if __name__ == "__main__":
     env_state = env.get_state()  # type: ignore
 
     # generate an explicit position goal
-    make_goal(sock, env_state, goal_symbol)
+    # make_goal(sock, env_state, goal_symbol)
 
     # send first observation (complete)
     send_observation(sock, process, env_state, complete=True)
+
+    # first, show how to reach a location
+    # reach_loc1_sym = "REACH_LOC1"
+    # reach_loc2_sym = "REACH_LOC2"
+    # reach_loc3_sym = "REACH_LOC3"
+    # reach_loc1_pos = (3, 2)
+    # reach_loc2_pos = (8, 5)
+    # reach_loc3_pos = (2, 5)
+
+    # av = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
+    # agent_pos = av["Location"]
+
+    # make_loc_goal(sock, reach_loc1_pos, reach_loc1_sym)
+    # demo_reach_loc(reach_loc1_sym, agent_pos, reach_loc1_pos)
+    # make_loc_goal(sock, reach_loc2_pos, reach_loc2_sym)
+    # demo_reach_loc(reach_loc2_sym, agent_pos, reach_loc2_pos)
+    # demo_reach_loc(reach_loc3_sym, agent_pos, reach_loc3_pos)
 
     total_reward = 0.0
     episode_reward = 0.0
     num_episodes = 1
     tb_writer = SummaryWriter(comment="-nars-zelda")
     # TRAINING LOOP
-    for s in range(1000):
+    for s in range(100000):
         send_observation(
             sock, process, env_state
         )  # TODO: remove duplicate first observation
@@ -266,13 +343,17 @@ if __name__ == "__main__":
         # env.render()  # Renders the environment from the perspective of a single player
         env_state = env.get_state()  # type: ignore
 
-        if goal_satisfied(env_state):
-            ic("Goal achieved!")
+        # if goal_satisfied(env_state):
+        #     ic("Goal achieved!")
+        #     send_input(sock, f"{goal_symbol}. :|:")
+        #     get_output(process)
+        if reward > 0:
+            ic("Got reward!")
             send_input(sock, f"{goal_symbol}. :|:")
             get_output(process)
 
-        env.render(observer="global")  # type: ignore # Renders the entire environment
-        sleep(1)
+        # env.render(observer="global")  # type: ignore # Renders the entire environment
+        # sleep(1)
 
         if done:
             total_reward += episode_reward
