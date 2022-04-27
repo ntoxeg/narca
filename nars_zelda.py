@@ -52,7 +52,7 @@ def narsify_from_state(env_state: dict):
     return object_beliefs + wall_beliefs
 
 
-def to_gym_action(nars_output: str, env_state: dict) -> list[int]:
+def to_gym_actions(nars_output: str, env_state: dict) -> list[list[int]]:
     """Convert NARS output to a Gym action"""
     to_griddly_id = {
         "^rotate_left": 1,
@@ -74,12 +74,35 @@ def to_gym_action(nars_output: str, env_state: dict) -> list[int]:
                 args = split_on_args[1][1:-1].split("*")
 
                 path_ops = pathfind(avatar["Location"], pos(args[1]))
-                return [0, to_griddly_id[path_ops[0]]]
+                rel_ops = abs_to_rel(avatar, path_ops[0])
+                return [[0, to_griddly_id[op]] for op in rel_ops]
             if op == "^attack":
-                return [1, 1]
-            return [0, to_griddly_id[op]]
+                return [[1, 1]]
+            return [[0, to_griddly_id[op]]]
 
-    return [0, 0]  # noop
+    return [[0, 0]]  # noop
+
+
+def abs_to_rel(avatar, op):
+    orient_to_num = {
+        "UP": 0,
+        "RIGHT": 1,
+        "DOWN": 2,
+        "LEFT": 3,
+    }
+    avatar_orient = orient_to_num[avatar["Orientation"]]
+    dor = 0
+    match op:
+        case "^up":
+            dor = 4 - avatar_orient if avatar_orient != 0 else 0
+        case "^right":
+            dor = 5 - avatar_orient if avatar_orient != 1 else 0
+        case "^down":
+            dor = 6 - avatar_orient if avatar_orient != 2 else 0
+        case "^left":
+            dor = 7 - avatar_orient if avatar_orient != 3 else 0
+
+    return ["^rotate_right"] * dor + ["^move_forwards"]
 
 
 def goal_reached(env_state: dict) -> bool:
@@ -135,7 +158,7 @@ def demo_reach_loc(
     for action in actions_to_take:
         send_input(SOCKET, f"{action}. :|:")
         env_state = env.get_state()  # type: ignore
-        obs, _, done, _ = env.step(to_gym_action(action, env_state))
+        obs, _, done, _ = env.step(to_gym_actions(action, env_state))
         send_observation(SOCKET, process, env.get_state())  # type: ignore
 
         env.render(observer="global")  # type: ignore
@@ -153,19 +176,13 @@ def make_loc_goal(sock, pos, goal_symbol):
     send_input(sock, goal_achievement)
 
 
-# def check_goals(goals: list[Goal], env_state: dict) -> list[bool]:
-#     satisfied = [goal.satisfied(env_state) for goal in goals]
-#     for g, sat in zip(goals, satisfied):
-#         if sat:
-#             send_input(SOCKET, f"{g.symbol}. :|:")
-#             get_output(process)
-#     return satisfied
-
 if __name__ == "__main__":
+    door_goal_sym = "AT_DOOR"
     reach_object_knowledge = [
-        f"<(<($obj * #location) --> at> &/ <({ext('avatar')} * #location) --> ^goto>) =/> <$obj --> [reached]>>."
+        f"<(<($obj * #location) --> at> &/ <({ext('avatar')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
+        f"<<goal --> [reached]> =/> {door_goal_sym}>.",
     ]
-    DOOR_GOAL = Goal("AT_DOOR", goal_reached, reach_object_knowledge)
+    DOOR_GOAL = Goal(door_goal_sym, goal_reached, reach_object_knowledge)
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
 
     goals = [
@@ -212,23 +229,6 @@ if __name__ == "__main__":
     # send first observation (complete)
     send_observation(SOCKET, process, env_state, complete=True)
 
-    # first, show how to reach a location
-    # reach_loc1_sym = "REACH_LOC1"
-    # reach_loc2_sym = "REACH_LOC2"
-    # reach_loc3_sym = "REACH_LOC3"
-    # reach_loc1_pos = (3, 2)
-    # reach_loc2_pos = (8, 5)
-    # reach_loc3_pos = (2, 5)
-
-    # av = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    # agent_pos = av["Location"]
-
-    # make_loc_goal(sock, reach_loc1_pos, reach_loc1_sym)
-    # demo_reach_loc(reach_loc1_sym, agent_pos, reach_loc1_pos)
-    # make_loc_goal(sock, reach_loc2_pos, reach_loc2_sym)
-    # demo_reach_loc(reach_loc2_sym, agent_pos, reach_loc2_pos)
-    # demo_reach_loc(reach_loc3_sym, agent_pos, reach_loc3_pos)
-
     total_reward = 0.0
     episode_reward = 0.0
     num_episodes = 1
@@ -249,8 +249,13 @@ if __name__ == "__main__":
             nars_output = random.choice(list(NARS_OPERATIONS.keys()))
             send_input(SOCKET, nal_now(nars_output))
 
-        obs, reward, done, info = env.step(to_gym_action(nars_output, env.get_state()))  # type: ignore
-        episode_reward += reward
+        reward = 0.0
+        done = False
+        actions = to_gym_actions(nars_output, env.get_state())  # type: ignore
+        for action in actions:
+            obs, reward, done, info = env.step(action)
+            episode_reward += reward
+
         env_state = env.get_state()  # type: ignore
         env_state["reward"] = reward
 

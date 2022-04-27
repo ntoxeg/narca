@@ -28,7 +28,7 @@ def get_output(process: pexpect.spawn) -> str:
     # outlines = process.stdout.readlines()
     # output = "\n".join(outlines)
     # process.sendline("0")
-    # HACK: fuck it, just use sock to send input
+    # HACK: use socket to send input
     send_input(SOCKET, "0")
     process.expect(["done with 0 additional inference steps.", pexpect.EOF])
     # process.expect(pexpect.EOF)
@@ -47,6 +47,7 @@ def expect_output(
     patience: int = 10,
     goal_reentry: Optional[Goal] = None,
 ) -> Optional[str]:
+    send_input(sock, str(think_ticks))
     output = get_output(process)
     while not any(target in output for target in targets):
         if patience <= 0:
