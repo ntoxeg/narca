@@ -13,84 +13,23 @@ from griddly import gd
 from icecream import ic
 from tensorboardX import SummaryWriter
 
+from astar import *
+from udpnar import *
+from utils import *
+
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
 logger = logging.getLogger("nars")
 
 NARS_PATH = Path(os.environ["NARS_HOME"])
-IP = "127.0.0.1"
-PORT = 50000
-
 NARS_OPERATIONS = {
-    "^rotate_left": 1,
-    "^move_forwards": 2,
-    "^rotate_right": 3,
-    "^move_backwards": 4,
+    "^goto": 1,
+    "^attack": 2,
+    "^rotate_left": 3,
+    "^move_forwards": 4,
+    "^rotate_right": 5,
+    "^move_backwards": 6,
 }
-
-
-def send_input(socket: socket.socket, input_: str) -> None:
-    """Send input to NARS server"""
-    socket.sendto((input_ + "\0").encode(), (IP, PORT))
-
-
-# def send_input_process(process: subprocess.Popen, input_: str):
-#     """Send input to NARS process"""
-#     stdin = process.stdin
-#     stdin.write(input_ + "\n")
-
-
-def get_output(process: pexpect.spawn) -> str:
-    """Get output from NARS server"""
-    # outlines = process.stdout.readlines()
-    # output = "\n".join(outlines)
-    # process.sendline("0")
-    # HACK: fuck it, just use sock to send input
-    send_input(sock, "0")
-    process.expect(["done with 0 additional inference steps.", pexpect.EOF])
-    # process.expect(pexpect.EOF)
-    output = "\n".join(
-        [s.strip().decode("utf-8") for s in process.before.split(b"\n")][2:-3]  # type: ignore
-    )
-    logger.debug(output)
-    return output
-
-
-def expect_output(
-    sock: socket.socket,
-    process: pexpect.spawn,
-    targets: list[str],
-    think_ticks: int = 10,
-    patience: int = 10,
-    goal_reentry: Optional[str] = None,
-) -> Optional[str]:
-    output = get_output(process)
-    while not any(target in output for target in targets):
-        if patience <= 0:
-            # ic("Patience has run out, returning None.")
-            return None  # type: ignore
-        patience -= 1
-
-        # ic("Output is:", output)
-        # ic("Waiting for:", targets)
-        # sleep(1)
-        if goal_reentry is not None:
-            send_input(sock, goal_reentry)
-
-        send_input(sock, str(think_ticks))
-        output = get_output(process)
-    # ic("Got a valid operation.")
-    return output
-
-
-def narsify(observation):
-    """Convert a Gym observation to NARS input"""
-    return ",".join(str(x) for x in observation)
-
-
-def loc(pos: tuple[int, int]) -> str:
-    """Turn coordinates into a location string"""
-    return f"loc_x{pos[0]}_y{pos[1]}"
 
 
 def narsify_from_state(env_state: dict):
@@ -113,46 +52,37 @@ def narsify_from_state(env_state: dict):
     return object_beliefs + wall_beliefs
 
 
-def to_gym_action(nars_output: str) -> list[int]:
+def to_gym_action(nars_output: str, env_state: dict) -> list[int]:
     """Convert NARS output to a Gym action"""
+    to_griddly_id = {
+        "^rotate_left": 1,
+        "^move_forwards": 2,
+        "^rotate_right": 3,
+        "^move_backwards": 4,
+    }
+
     matches = [target in nars_output for target in NARS_OPERATIONS.keys()]
-    action_id = list(NARS_OPERATIONS.values())[matches.index(True)]
-    action = [0, action_id]  # 0 is for "move"
+    matches = zip(NARS_OPERATIONS.keys(), matches)
+    for op, match in matches:
+        if match:
+            if op == "^goto":
+                avatar = next(
+                    obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
+                )
 
-    return action
+                split_on_args = nars_output.split("args")
+                args = split_on_args[1][1:-1].split("*")
 
+                path_ops = pathfind(avatar["Location"], pos(args[1]))
+                return [0, to_griddly_id[path_ops[0]]]
+            if op == "^attack":
+                return [1, 1]
+            return [0, to_griddly_id[op]]
 
-def setup_nars_ops(socket: socket.socket):
-    """Setup NARS operations"""
-    for op in NARS_OPERATIONS:
-        send_input(socket, f"*setopname {NARS_OPERATIONS[op]} {op}")
-    send_input(socket, f"*babblingops={len(NARS_OPERATIONS)}")
-
-
-# def setup_nars_ops_process(process: subprocess.Popen):
-#     """Setup NARS operations"""
-#     stdin = process.stdin
-#     for op in NARS_OPERATIONS:
-#         stdin.write(f"*setopname {NARS_OPERATIONS[op]} {op}\n")
-
-
-def setup_nars(socket: socket.socket):
-    """Send NARS settings"""
-    send_input(socket, "*reset")
-    setup_nars_ops(socket)
-    send_input(socket, "*motorbabbling=0.3")
-    # send_input(socket, "*volume=0")
+    return [0, 0]  # noop
 
 
-# def setup_nars_process(process: subprocess.Popen):
-#     """Setup NARS process"""
-#     stdin = process.stdin
-#     stdin.write("*reset\n")
-#     setup_nars_ops_process(process)
-#     stdin.write("*motorbabbling=0.3\n")
-
-
-def goal_satisfied(env_state: dict) -> bool:
+def goal_reached(env_state: dict) -> bool:
     """Check if the goal has been reached"""
     try:
         avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
@@ -163,9 +93,8 @@ def goal_satisfied(env_state: dict) -> bool:
     return avatar["Location"] == goal["Location"]
 
 
-def ext(s: str) -> str:
-    """Just a helper to wrap strings in '{}'"""
-    return "{" + s + "}"
+def got_rewarded(env_state: dict) -> bool:
+    return env_state["reward"] > 0
 
 
 def make_goal(sock: socket.socket, env_state: dict, goal_symbol: str) -> None:
@@ -204,48 +133,17 @@ def demo_reach_loc(
     """Demonstrate reaching a location"""
     actions_to_take = pathfind(agent_pos, pos)
     for action in actions_to_take:
-        send_input(sock, f"{action}. :|:")
-        obs, _, done, _ = env.step(to_gym_action(action))
-        send_observation(sock, process, env.get_state())  # type: ignore
+        send_input(SOCKET, f"{action}. :|:")
+        env_state = env.get_state()  # type: ignore
+        obs, _, done, _ = env.step(to_gym_action(action, env_state))
+        send_observation(SOCKET, process, env.get_state())  # type: ignore
 
         env.render(observer="global")  # type: ignore
         sleep(1)
         if done:
             env.reset()
             demo_reach_loc(symbol, agent_pos, pos)
-    send_input(sock, f"{symbol}. :|:")
-
-
-def pathfind(agent_pos: tuple[int, int], pos: tuple[int, int]) -> list[str]:
-    if pos == (3, 2):
-        return [
-            "^rotate_left",
-            "^move_forwards",
-            "^move_forwards",
-        ]
-    elif pos == (8, 5):
-        return [
-            "^move_backwards",
-            "^move_backwards",
-            "^move_backwards",
-            "^move_backwards",
-            "^move_backwards",
-            "^rotate_left",
-            "^move_forwards",
-            "^move_forwards",
-            "^move_forwards",
-        ]
-    elif pos == (2, 5):
-        return [
-            "^rotate_right",
-            "^move_forwards",
-            "^move_forwards",
-            "^move_forwards",
-            "^move_forwards",
-            "^move_forwards",
-            "^move_forwards",
-        ]
-    return ["^move_forwards"]
+    send_input(SOCKET, f"{symbol}. :|:")
 
 
 def make_loc_goal(sock, pos, goal_symbol):
@@ -255,8 +153,26 @@ def make_loc_goal(sock, pos, goal_symbol):
     send_input(sock, goal_achievement)
 
 
+# def check_goals(goals: list[Goal], env_state: dict) -> list[bool]:
+#     satisfied = [goal.satisfied(env_state) for goal in goals]
+#     for g, sat in zip(goals, satisfied):
+#         if sat:
+#             send_input(SOCKET, f"{g.symbol}. :|:")
+#             get_output(process)
+#     return satisfied
+
 if __name__ == "__main__":
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    reach_object_knowledge = [
+        f"<(<($obj * #location) --> at> &/ <({ext('avatar')} * #location) --> ^goto>) =/> <$obj --> [reached]>>."
+    ]
+    DOOR_GOAL = Goal("AT_DOOR", goal_reached, reach_object_knowledge)
+    REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
+
+    goals = [
+        DOOR_GOAL,
+        REWARD_GOAL,
+    ]
+    persistent_goal = DOOR_GOAL
 
     # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
     process_cmd = [
@@ -281,13 +197,7 @@ if __name__ == "__main__":
     sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
 
     # setup NARS
-    setup_nars(sock)
-    # goal_symbol = "AT_DOOR"
-    # goal_symbol = "REACH_LOC1"
-    goal_symbol = "GOT_REWARD"
-    persistent_goal = f"{goal_symbol}! :|:"
-    # goal_achievement = f"<(<avatar --> [?1]> &/ <goal --> [?1]>) =/> {goal_symbol}>."
-    # send_input(sock, goal_achievement)
+    setup_nars(SOCKET, NARS_OPERATIONS)
     logger.info(get_output(process))
 
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
@@ -295,11 +205,12 @@ if __name__ == "__main__":
     # For now we will just use `get_state` to get the state
     env_state = env.get_state()  # type: ignore
 
-    # generate an explicit position goal
-    # make_goal(sock, env_state, goal_symbol)
-
+    # send goal knowledge
+    if persistent_goal.knowledge is not None:
+        for belief in persistent_goal.knowledge:
+            send_input(SOCKET, belief)
     # send first observation (complete)
-    send_observation(sock, process, env_state, complete=True)
+    send_observation(SOCKET, process, env_state, complete=True)
 
     # first, show how to reach a location
     # reach_loc1_sym = "REACH_LOC1"
@@ -323,37 +234,35 @@ if __name__ == "__main__":
     num_episodes = 1
     tb_writer = SummaryWriter(comment="-nars-zelda")
     # TRAINING LOOP
-    for s in range(100000):
+    for s in range(100):
         send_observation(
-            sock, process, env_state
+            SOCKET, process, env_state
         )  # TODO: remove duplicate first observation
 
         # determine the action to take from NARS
-        send_input(sock, persistent_goal)
+        send_input(SOCKET, nal_demand(persistent_goal.symbol))
         nars_output = expect_output(
-            sock, process, list(NARS_OPERATIONS.keys()), goal_reentry=persistent_goal
+            SOCKET, process, list(NARS_OPERATIONS.keys()), goal_reentry=persistent_goal
         )
 
         if nars_output is None:
             nars_output = random.choice(list(NARS_OPERATIONS.keys()))
-            send_input(sock, f"{nars_output}. :|:")
+            send_input(SOCKET, nal_now(nars_output))
 
-        obs, reward, done, info = env.step(to_gym_action(nars_output))
+        obs, reward, done, info = env.step(to_gym_action(nars_output, env.get_state()))  # type: ignore
         episode_reward += reward
-        # env.render()  # Renders the environment from the perspective of a single player
         env_state = env.get_state()  # type: ignore
+        env_state["reward"] = reward
 
-        # if goal_satisfied(env_state):
-        #     ic("Goal achieved!")
-        #     send_input(sock, f"{goal_symbol}. :|:")
-        #     get_output(process)
-        if reward > 0:
-            ic("Got reward!")
-            send_input(sock, f"{goal_symbol}. :|:")
-            get_output(process)
+        satisfied_goals = [g.satisfied(env_state) for g in goals]
+        for g, sat in zip(goals, satisfied_goals):
+            if sat:
+                ic(f"{g.symbol} satisfied.")
+                send_input(SOCKET, nal_now(g.symbol))
+                get_output(process)
 
-        # env.render(observer="global")  # type: ignore # Renders the entire environment
-        # sleep(1)
+        env.render(observer="global")  # type: ignore # Renders the entire environment
+        sleep(1)
 
         if done:
             total_reward += episode_reward
