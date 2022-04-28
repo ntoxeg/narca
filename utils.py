@@ -14,7 +14,7 @@ def loc(pos: tuple[int, int]) -> str:
 
 def pos(loc: str) -> tuple[int, int]:
     """Turn a location string into coordinates"""
-    coord_str = loc[3:]
+    coord_str = loc[4:]
     x, y = coord_str.split("_")
     x, y = x[1:], y[1:]
     return int(x), int(y)
