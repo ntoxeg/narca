@@ -1,10 +1,10 @@
 import logging
 import socket
-from typing import Optional
+from typing import Any, Optional
 
 import pexpect
 
-from .utils import Goal, nal_demand
+from .utils import *
 
 IP = "127.0.0.1"
 PORT = 50000
@@ -23,8 +23,8 @@ def send_input(socket: socket.socket, input_: str) -> None:
 #     stdin.write(input_ + "\n")
 
 
-def get_output(process: pexpect.spawn) -> str:
-    """Get output from NARS server"""
+def get_raw_output(process: pexpect.spawn) -> list[str]:
+    """Get raw output from NARS server"""
     # outlines = process.stdout.readlines()
     # output = "\n".join(outlines)
     # process.sendline("0")
@@ -32,11 +32,34 @@ def get_output(process: pexpect.spawn) -> str:
     send_input(SOCKET, "0")
     process.expect(["done with 0 additional inference steps.", pexpect.EOF])
     # process.expect(pexpect.EOF)
-    output = "\n".join(
-        [s.strip().decode("utf-8") for s in process.before.split(b"\n")][2:-3]  # type: ignore
-    )
-    logger.debug(output)
+    output = [s.strip().decode("utf-8") for s in process.before.split(b"\n")][2:-3]  # type: ignore
+    logger.debug("\n".join(output))
     return output
+
+
+def get_output(process: pexpect.spawn) -> dict[str, Any]:
+    lines = get_raw_output(process)
+    executions = [parse_execution(l) for l in lines if l.startswith("^")]
+    inputs = [
+        parse_task(l.split("Input: ")[1]) for l in lines if l.startswith("Input:")
+    ]
+    derivations = [
+        parse_task(l.split("Derived: " if l.startswith("Derived:") else "Revised:")[1])
+        for l in lines
+        if l.startswith("Derived:") or l.startswith("Revised:")
+    ]
+    answers = [
+        parse_task(l.split("Answer: ")[1]) for l in lines if l.startswith("Answer:")
+    ]
+    reason = parse_reason("\n".join(lines))
+    return {
+        "input": inputs,
+        "derivations": derivations,
+        "answers": answers,
+        "executions": executions,
+        "reason": reason,
+        "raw": "\n".join(lines),
+    }
 
 
 def expect_output(
@@ -46,9 +69,9 @@ def expect_output(
     think_ticks: int = 10,
     patience: int = 10,
     goal_reentry: Optional[Goal] = None,
-) -> Optional[str]:
+) -> Optional[dict[str, Any]]:
     output = get_output(process)
-    while not any(target in output for target in targets):
+    while not any(target in output["raw"] for target in targets):
         if patience <= 0:
             # ic("Patience has run out, returning None.")
             return None  # type: ignore
@@ -62,7 +85,7 @@ def expect_output(
 
         send_input(sock, str(think_ticks))
         output = get_output(process)
-    # ic("Got a valid operation.")
+    # ic("Got a matching output.")
     return output
 
 

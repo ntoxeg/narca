@@ -1,5 +1,5 @@
-# NARS Controlled Agent
-> An agent capable of playing various games in Gym environments, using NARS for reasoning
+# NARCA: NARS Controlled Agent
+> An agent capable of playing various games in Gym environments, using NARS for planning
 
 ## Installation
 You need to have OpenNARS-For-Applications installed somewhere. It is expected that you will export a `NARS_HOME` environment

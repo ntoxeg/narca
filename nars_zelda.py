@@ -52,8 +52,11 @@ def narsify_from_state(env_state: dict):
     return object_beliefs + wall_beliefs
 
 
-def to_gym_actions(nars_output: str, env_state: dict) -> list[list[int]]:
-    """Convert NARS output to a Gym action"""
+def to_gym_actions(nars_output: dict[str, Any], env_state: dict) -> list[list[int]]:
+    """Convert NARS output to a Gym action
+
+    Now includes simple planning. To be refactored.
+    """
     to_griddly_id = {
         "^rotate_left": 1,
         "^move_forwards": 2,
@@ -61,33 +64,31 @@ def to_gym_actions(nars_output: str, env_state: dict) -> list[list[int]]:
         "^move_backwards": 4,
     }
 
-    matches = [target in nars_output for target in NARS_OPERATIONS.keys()]
-    matches = zip(NARS_OPERATIONS.keys(), matches)
-    for op, match in matches:
-        if match:
-            if op == "^goto":
-                avatar = next(
-                    obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
-                )
+    if len(nars_output["executions"]) < 1:
+        raise ValueError("No executions found.")
+    for exe in nars_output["executions"]:  # for now we will process the first execution
+        ic(exe)
+        op = exe["operator"]
+        args = exe["arguments"]
+        if op == "^goto":
+            avatar = next(
+                obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
+            )
 
-                ic(nars_output)
-                split_on_args = nars_output.split("args")
-                if len(split_on_args) < 2:
-                    ic("No args found in NARS output, assuming random coordinates.")
-                    args = [
-                        "{avatar}",
-                        loc((random.randint(0, 6), random.randint(0, 6))),
-                    ]
-                else:
-                    args = split_on_args[1][1:-1].split("*")
+            if len(args) < 2:
+                ic("Not enough arguments received, assuming random coordinates.")
+                args = [
+                    "{avatar}",
+                    loc((random.randint(0, 6), random.randint(0, 6))),
+                ]
 
-                ic("Executing ^goto with args:", args)
-                path_ops = pathfind(avatar["Location"], pos(args[1]))
-                rel_ops = abs_to_rel(avatar, path_ops[0])
-                return [[0, to_griddly_id[op]] for op in rel_ops]
-            if op == "^attack":
-                return [[1, 1]]
-            return [[0, to_griddly_id[op]]]
+            ic("Executing ^goto with args:", args)
+            path_ops = pathfind(avatar["Location"], pos(args[1]))
+            rel_ops = abs_to_rel(avatar, path_ops[0])
+            return [[0, to_griddly_id[op]] for op in rel_ops]
+        if op == "^attack":
+            return [[1, 1]]
+        return [[0, to_griddly_id[op]]]
 
     return [[0, 0]]  # noop
 
@@ -155,27 +156,27 @@ def send_observation(
     statements = [st for st in state_narsese if "wall" not in st or complete]
     for statement in statements:
         send_input(sock, statement)
-        get_output(process)
+        get_raw_output(process)
     # send_input(sock, narsify_from_state(env_state))
 
 
-def demo_reach_loc(
-    symbol: str, agent_pos: tuple[int, int], pos: tuple[int, int]
-) -> None:
-    """Demonstrate reaching a location"""
-    actions_to_take = pathfind(agent_pos, pos)
-    for action in actions_to_take:
-        send_input(SOCKET, f"{action}. :|:")
-        env_state = env.get_state()  # type: ignore
-        obs, _, done, _ = env.step(to_gym_actions(action, env_state))
-        send_observation(SOCKET, process, env.get_state())  # type: ignore
+# def demo_reach_loc(
+#     symbol: str, agent_pos: tuple[int, int], pos: tuple[int, int]
+# ) -> None:
+#     """Demonstrate reaching a location"""
+#     actions_to_take = pathfind(agent_pos, pos)
+#     for action in actions_to_take:
+#         send_input(SOCKET, f"{action}. :|:")
+#         env_state = env.get_state()  # type: ignore
+#         obs, _, done, _ = env.step(to_gym_actions(action, env_state))
+#         send_observation(SOCKET, process, env.get_state())  # type: ignore
 
-        env.render(observer="global")  # type: ignore
-        sleep(1)
-        if done:
-            env.reset()
-            demo_reach_loc(symbol, agent_pos, pos)
-    send_input(SOCKET, f"{symbol}. :|:")
+#         env.render(observer="global")  # type: ignore
+#         sleep(1)
+#         if done:
+#             env.reset()
+#             demo_reach_loc(symbol, agent_pos, pos)
+#     send_input(SOCKET, f"{symbol}. :|:")
 
 
 def make_loc_goal(sock, pos, goal_symbol):
@@ -224,7 +225,7 @@ if __name__ == "__main__":
 
     # setup NARS
     setup_nars(SOCKET, NARS_OPERATIONS)
-    logger.info(get_output(process))
+    logger.info(get_raw_output(process))
 
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
     obs = env.reset()
@@ -260,7 +261,9 @@ if __name__ == "__main__":
         )
 
         if nars_output is None:
-            nars_output = random.choice(list(NARS_OPERATIONS.keys()))
+            nars_output = random.choice(
+                list(NARS_OPERATIONS.keys())
+            )  # FIXME: generate proper random execution
             send_input(SOCKET, nal_now(nars_output))  # FIXME: handle arguments
 
         reward = 0.0
@@ -278,7 +281,7 @@ if __name__ == "__main__":
             if sat:
                 ic(f"{g.symbol} satisfied.")
                 send_input(SOCKET, nal_now(g.symbol))
-                get_output(process)
+                get_raw_output(process)
 
         env.render(observer="global")  # type: ignore # Renders the entire environment
         sleep(1)
