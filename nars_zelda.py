@@ -13,9 +13,9 @@ from griddly import gd
 from icecream import ic
 from tensorboardX import SummaryWriter
 
-from astar import *
-from udpnar import *
-from utils import *
+from narca.astar import *
+from narca.udpnar import *
+from narca.utils import *
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
@@ -70,9 +70,18 @@ def to_gym_actions(nars_output: str, env_state: dict) -> list[list[int]]:
                     obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
                 )
 
+                ic(nars_output)
                 split_on_args = nars_output.split("args")
-                args = split_on_args[1][1:-1].split("*")
+                if len(split_on_args) < 2:
+                    ic("No args found in NARS output, assuming random coordinates.")
+                    args = [
+                        "{avatar}",
+                        loc((random.randint(0, 6), random.randint(0, 6))),
+                    ]
+                else:
+                    args = split_on_args[1][1:-1].split("*")
 
+                ic("Executing ^goto with args:", args)
                 path_ops = pathfind(avatar["Location"], pos(args[1]))
                 rel_ops = abs_to_rel(avatar, path_ops[0])
                 return [[0, to_griddly_id[op]] for op in rel_ops]
@@ -180,7 +189,7 @@ if __name__ == "__main__":
     door_goal_sym = "AT_DOOR"
     reach_object_knowledge = [
         f"<(<($obj * #location) --> at> &/ <({ext('avatar')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
-        f"<<goal --> [reached]> =/> {door_goal_sym}>.",
+        f"<<{ext('goal')} --> [reached]> =/> {door_goal_sym}>.",
     ]
     DOOR_GOAL = Goal(door_goal_sym, goal_reached, reach_object_knowledge)
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
@@ -241,13 +250,18 @@ if __name__ == "__main__":
 
         # determine the action to take from NARS
         send_input(SOCKET, nal_demand(persistent_goal.symbol))
+        # send_input(SOCKET, "10")
         nars_output = expect_output(
-            SOCKET, process, list(NARS_OPERATIONS.keys()), goal_reentry=persistent_goal
+            SOCKET,
+            process,
+            list(NARS_OPERATIONS.keys()),
+            goal_reentry=persistent_goal,
+            think_ticks=20,
         )
 
         if nars_output is None:
             nars_output = random.choice(list(NARS_OPERATIONS.keys()))
-            send_input(SOCKET, nal_now(nars_output))
+            send_input(SOCKET, nal_now(nars_output))  # FIXME: handle arguments
 
         reward = 0.0
         done = False

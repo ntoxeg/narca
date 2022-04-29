@@ -4,7 +4,7 @@ from typing import Optional
 
 import pexpect
 
-from utils import Goal, nal_demand
+from .utils import Goal, nal_demand
 
 IP = "127.0.0.1"
 PORT = 50000
@@ -47,7 +47,6 @@ def expect_output(
     patience: int = 10,
     goal_reentry: Optional[Goal] = None,
 ) -> Optional[str]:
-    send_input(sock, str(think_ticks))
     output = get_output(process)
     while not any(target in output for target in targets):
         if patience <= 0:
@@ -85,7 +84,7 @@ def setup_nars(socket: socket.socket, ops: dict[str, int]):
     """Send NARS settings"""
     send_input(socket, "*reset")
     setup_nars_ops(socket, ops)
-    send_input(socket, "*motorbabbling=0.1")
+    send_input(socket, "*motorbabbling=0.05")
     # send_input(socket, "*volume=0")
 
 
