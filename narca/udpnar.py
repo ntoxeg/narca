@@ -70,8 +70,9 @@ def expect_output(
     patience: int = 10,
     goal_reentry: Optional[Goal] = None,
 ) -> Optional[dict[str, Any]]:
+    # TODO: refactor - this is basically for dealing with executions
     output = get_output(process)
-    while not any(target in output["raw"] for target in targets):
+    while not any(target in exe for target in targets for exe in output["executions"]):
         if patience <= 0:
             # ic("Patience has run out, returning None.")
             return None  # type: ignore

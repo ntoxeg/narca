@@ -32,24 +32,35 @@ NARS_OPERATIONS = {
 }
 
 
-def narsify_from_state(env_state: dict):
+def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
     """Produce NARS statements from environment semantic state"""
     # TODO: determine if a single `wall` entity would be preferable
     # TODO: handle the case where every type of an object can be a multiple
+    special_types = ["wall", "avatar"]
+
     walls = [
         (i, obj["Location"])
         for i, obj in enumerate(env_state["Objects"])
         if obj["Name"] == "wall"
     ]
+
+    avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
+    avatar_loc = f"<({ext('avatar')} * {loc(avatar['Location'])}) --> at>. :|:"
+    avatar_orient = (
+        f"<{ext('avatar')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
+    )
+    avatar_beliefs = [avatar_loc, avatar_orient]
+
     object_beliefs = [
         f"<({ext(obj['Name'])} * {loc(obj['Location'])}) --> at>. :|:"
         for obj in env_state["Objects"]
-        if obj["Name"] != "wall"
+        if obj["Name"] not in special_types
     ]
     wall_beliefs = [
         f"<({ext('wall' + str(i))} * {loc(pos)}) --> at>. :|:" for i, pos in walls
     ]
-    return object_beliefs + wall_beliefs
+
+    return avatar_beliefs + object_beliefs + wall_beliefs
 
 
 def to_gym_actions(nars_output: dict[str, Any], env_state: dict) -> list[list[int]]:
@@ -99,7 +110,10 @@ def abs_to_rel(avatar, op):
         "RIGHT": 1,
         "DOWN": 2,
         "LEFT": 3,
+        "NONE": 0,  # HACK: assuming that NONE is the same as UP
     }
+    if avatar["Orientation"] == "NONE":
+        ic("Warning: avatar orientation is NONE. Assuming UP.")
     avatar_orient = orient_to_num[avatar["Orientation"]]
     dor = 0
     match op:
@@ -225,7 +239,7 @@ if __name__ == "__main__":
 
     # setup NARS
     setup_nars(SOCKET, NARS_OPERATIONS)
-    logger.info(get_raw_output(process))
+    logger.info("\n".join(get_raw_output(process)))
 
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
     obs = env.reset()
@@ -261,10 +275,9 @@ if __name__ == "__main__":
         )
 
         if nars_output is None:
-            nars_output = random.choice(
-                list(NARS_OPERATIONS.keys())
-            )  # FIXME: generate proper random execution
-            send_input(SOCKET, nal_now(nars_output))  # FIXME: handle arguments
+            op = random.choice(list(NARS_OPERATIONS.keys()))
+            send_input(SOCKET, nal_now(op))  # FIXME: handle arguments
+            nars_output = {"executions": [{"operator": op, "arguments": []}]}
 
         reward = 0.0
         done = False
