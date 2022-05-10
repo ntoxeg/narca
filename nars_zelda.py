@@ -13,6 +13,7 @@ from griddly import gd
 from icecream import ic
 from tensorboardX import SummaryWriter
 
+from narca.agent import Agent
 from narca.astar import *
 from narca.udpnar import *
 from narca.utils import *
@@ -63,45 +64,68 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
     return avatar_beliefs + object_beliefs + wall_beliefs
 
 
-def to_gym_actions(nars_output: dict[str, Any], env_state: dict) -> list[list[int]]:
-    """Convert NARS output to a Gym action
+class ZeldaAgent(Agent):
+    """Agent for Zelda"""
 
-    Now includes simple planning. To be refactored.
-    """
-    to_griddly_id = {
-        "^rotate_left": 1,
-        "^move_forwards": 2,
-        "^rotate_right": 3,
-        "^move_backwards": 4,
-    }
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
 
-    if len(nars_output["executions"]) < 1:
-        raise ValueError("No executions found.")
-    for exe in nars_output["executions"]:  # for now we will process the first execution
-        ic(exe)
-        op = exe["operator"]
-        args = exe["arguments"]
-        if op == "^goto":
-            avatar = next(
-                obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
-            )
+    def plan(self) -> list[list[int]]:
+        env_state = self.env.get_state()
+        nars_output = expect_output(
+            SOCKET,
+            process,
+            list(NARS_OPERATIONS.keys()),
+            goal_reentry=persistent_goal,
+            think_ticks=20,
+        )
 
-            if len(args) < 2:
-                ic("Not enough arguments received, assuming random coordinates.")
-                args = [
-                    "{avatar}",
-                    loc((random.randint(0, 6), random.randint(0, 6))),
-                ]
+        if nars_output is None:
+            op = random.choice(list(NARS_OPERATIONS.keys()))
+            send_input(SOCKET, nal_now(op))  # FIXME: handle arguments
+            nars_output = {"executions": [{"operator": op, "arguments": []}]}
 
-            ic("Executing ^goto with args:", args)
-            path_ops = pathfind(avatar["Location"], pos(args[1]))
-            rel_ops = abs_to_rel(avatar, path_ops[0])
-            return [[0, to_griddly_id[op]] for op in rel_ops]
-        if op == "^attack":
-            return [[1, 1]]
-        return [[0, to_griddly_id[op]]]
+        return self.determine_actions(nars_output)
 
-    return [[0, 0]]  # noop
+    def determine_actions(self, nars_output: dict[str, Any]) -> list[list[int]]:
+        """Determine appropriate Gym actions based on NARS output"""
+        env_state = self.env.get_state()
+        to_griddly_id = {
+            "^rotate_left": 1,
+            "^move_forwards": 2,
+            "^rotate_right": 3,
+            "^move_backwards": 4,
+        }
+
+        if len(nars_output["executions"]) < 1:
+            raise ValueError("No executions found.")
+        for exe in nars_output[
+            "executions"
+        ]:  # for now we will process the first execution
+            ic(exe)
+            op = exe["operator"]
+            args = exe["arguments"]
+            if op == "^goto":
+                avatar = next(
+                    obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
+                )
+
+                if len(args) < 2:
+                    ic("Not enough arguments received, assuming random coordinates.")
+                    args = [
+                        "{avatar}",
+                        loc((random.randint(0, 6), random.randint(0, 6))),
+                    ]
+
+                ic("Executing ^goto with args:", args)
+                path_ops = pathfind(avatar["Location"], pos(args[1]))
+                rel_ops = abs_to_rel(avatar, path_ops[0])
+                return [[0, to_griddly_id[op]] for op in rel_ops]
+            if op == "^attack":
+                return [[1, 1]]
+            return [[0, to_griddly_id[op]]]
+
+        return [[0, 0]]  # noop
 
 
 def abs_to_rel(avatar, op):
@@ -166,7 +190,6 @@ def send_observation(
     # send the observation to NARS
     # send_input(sock, narsify(obs))
     state_narsese = narsify_from_state(env_state)
-    # TODO: I am not sure if I can only send single lines or not.
     statements = [st for st in state_narsese if "wall" not in st or complete]
     for statement in statements:
         send_input(sock, statement)
@@ -257,6 +280,7 @@ if __name__ == "__main__":
     episode_reward = 0.0
     num_episodes = 1
     tb_writer = SummaryWriter(comment="-nars-zelda")
+    agent = ZeldaAgent(env)
     # TRAINING LOOP
     for s in range(100):
         send_observation(
@@ -266,22 +290,10 @@ if __name__ == "__main__":
         # determine the action to take from NARS
         send_input(SOCKET, nal_demand(persistent_goal.symbol))
         # send_input(SOCKET, "10")
-        nars_output = expect_output(
-            SOCKET,
-            process,
-            list(NARS_OPERATIONS.keys()),
-            goal_reentry=persistent_goal,
-            think_ticks=20,
-        )
-
-        if nars_output is None:
-            op = random.choice(list(NARS_OPERATIONS.keys()))
-            send_input(SOCKET, nal_now(op))  # FIXME: handle arguments
-            nars_output = {"executions": [{"operator": op, "arguments": []}]}
 
         reward = 0.0
         done = False
-        actions = to_gym_actions(nars_output, env.get_state())  # type: ignore
+        actions = agent.plan()
         for action in actions:
             obs, reward, done, info = env.step(action)
             episode_reward += reward
