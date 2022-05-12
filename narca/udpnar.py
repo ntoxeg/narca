@@ -72,15 +72,14 @@ def expect_output(
 ) -> Optional[dict[str, Any]]:
     # TODO: refactor - this is basically for dealing with executions
     output = get_output(process)
-    while not any(target in exe for target in targets for exe in output["executions"]):
+    while not any(
+        target in exe["operator"] for target in targets for exe in output["executions"]
+    ):
         if patience <= 0:
             # ic("Patience has run out, returning None.")
             return None  # type: ignore
         patience -= 1
 
-        # ic("Output is:", output)
-        # ic("Waiting for:", targets)
-        # sleep(1)
         if goal_reentry is not None:
             send_input(sock, nal_demand(goal_reentry.symbol))
 
