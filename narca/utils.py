@@ -45,7 +45,11 @@ class Goal:
 
 
 def parse_truth_value(tv_str: str) -> dict[str, float]:
-    freq_s, conf_s = tv_str.split(", ")
+    splits = tv_str.split(" ")
+    freq_s, conf_s = splits[0], splits[1]
+    if freq_s[-1] == ",":
+        freq_s = freq_s[:-1]
+
     frequency = float(freq_s.split("=")[1])
     confidence = float(conf_s.split("=")[1])
     return {

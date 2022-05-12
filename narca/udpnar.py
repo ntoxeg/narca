@@ -66,7 +66,7 @@ def expect_output(
     sock: socket.socket,
     process: pexpect.spawn,
     targets: list[str],
-    think_ticks: int = 10,
+    think_ticks: int = 5,
     patience: int = 10,
     goal_reentry: Optional[Goal] = None,
 ) -> Optional[dict[str, Any]]:
@@ -94,7 +94,8 @@ def setup_nars_ops(socket: socket.socket, ops: dict[str, int]):
     """Setup NARS operations"""
     for op in ops:
         send_input(socket, f"*setopname {ops[op]} {op}")
-    send_input(socket, f"*babblingops={len(ops)}")
+    # send_input(socket, f"*babblingops={len(ops)}")
+    send_input(socket, "*babblingops=5")
 
 
 # def setup_nars_ops_process(process: subprocess.Popen):

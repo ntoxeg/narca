@@ -24,12 +24,12 @@ logger = logging.getLogger("nars")
 
 NARS_PATH = Path(os.environ["NARS_HOME"])
 NARS_OPERATIONS = {
-    "^goto": 1,
-    "^attack": 2,
-    "^rotate_left": 3,
-    "^move_forwards": 4,
-    "^rotate_right": 5,
-    "^move_backwards": 6,
+    "^rotate_left": 1,
+    "^move_forwards": 2,
+    "^rotate_right": 3,
+    "^move_backwards": 4,
+    "^attack": 5,
+    "^goto": 6,
 }
 
 
@@ -46,10 +46,8 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
     ]
 
     avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    avatar_loc = f"<({ext('avatar')} * {loc(avatar['Location'])}) --> at>. :|:"
-    avatar_orient = (
-        f"<{ext('avatar')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
-    )
+    avatar_loc = f"<({ext('SELF')} * {loc(avatar['Location'])}) --> at>. :|:"
+    avatar_orient = f"<{ext('SELF')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
     avatar_beliefs = [avatar_loc, avatar_orient]
 
     object_beliefs = [
@@ -77,7 +75,7 @@ class ZeldaAgent(Agent):
             process,
             list(NARS_OPERATIONS.keys()),
             goal_reentry=persistent_goal,
-            think_ticks=20,
+            think_ticks=5,
         )
 
         if nars_output is None:
@@ -113,7 +111,7 @@ class ZeldaAgent(Agent):
                 if len(args) < 2:
                     ic("Not enough arguments received, assuming random coordinates.")
                     args = [
-                        "{avatar}",
+                        "{SELF}",
                         loc((random.randint(0, 6), random.randint(0, 6))),
                     ]
 
@@ -172,7 +170,7 @@ def make_goal(sock: socket.socket, env_state: dict, goal_symbol: str) -> None:
     """Make an explicit goal using the position of an object"""
     goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
     goal_loc = loc(goal["Location"])
-    goal_achievement = f"<<({ext('avatar')} * {goal_loc}) --> at> =/> {goal_symbol}>."
+    goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
     send_input(sock, goal_achievement)
 
 
@@ -219,14 +217,14 @@ def send_observation(
 def make_loc_goal(sock, pos, goal_symbol):
     """Make a goal for a location"""
     goal_loc = loc(pos)
-    goal_achievement = f"<<({ext('avatar')} * {goal_loc}) --> at> =/> {goal_symbol}>."
+    goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
     send_input(sock, goal_achievement)
 
 
 if __name__ == "__main__":
     door_goal_sym = "AT_DOOR"
     reach_object_knowledge = [
-        f"<(<($obj * #location) --> at> &/ <({ext('avatar')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
+        f"<(<($obj * #location) --> at> &/ <({ext('SELF')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
         f"<<{ext('goal')} --> [reached]> =/> {door_goal_sym}>.",
     ]
     DOOR_GOAL = Goal(door_goal_sym, goal_reached, reach_object_knowledge)
