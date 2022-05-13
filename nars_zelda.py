@@ -2,6 +2,7 @@ import logging
 import os
 import random
 import socket
+from functools import partial
 from pathlib import Path
 from time import sleep
 from typing import Optional
@@ -67,9 +68,9 @@ class ZeldaAgent(Agent):
 
     def __init__(self, env: gym.Env):
         super().__init__(env)
+        self.has_key = False
 
     def plan(self) -> list[list[int]]:
-        env_state = self.env.get_state()
         nars_output = expect_output(
             SOCKET,
             process,
@@ -151,15 +152,21 @@ def abs_to_rel(avatar, op):
     return ["^rotate_right"] * dor + ["^move_forwards"]
 
 
-def goal_reached(env_state: dict) -> bool:
-    """Check if the goal has been reached"""
+def object_reached(obj_type: str, env_state: dict) -> bool:
+    """Check if an object has been reached
+
+    Assumes that if the object does not exist, then it must have been reached.
+    """
     try:
         avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-        goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
     except StopIteration:
-        ic("No avatar or goal found. Goal unsatisfiable.")
+        ic("No avatar found. Goal unsatisfiable.")
         return False
-    return avatar["Location"] == goal["Location"]
+    try:
+        target = next(obj for obj in env_state["Objects"] if obj["Name"] == obj_type)
+    except StopIteration:
+        return True
+    return avatar["Location"] == target["Location"]
 
 
 def got_rewarded(env_state: dict) -> bool:
@@ -222,19 +229,33 @@ def make_loc_goal(sock, pos, goal_symbol):
 
 
 if __name__ == "__main__":
-    door_goal_sym = "AT_DOOR"
     reach_object_knowledge = [
         f"<(<($obj * #location) --> at> &/ <({ext('SELF')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
-        f"<<{ext('goal')} --> [reached]> =/> {door_goal_sym}>.",
     ]
-    DOOR_GOAL = Goal(door_goal_sym, goal_reached, reach_object_knowledge)
+    # background_knowledge = reach_object_knowledge
+    background_knowledge = []
+
+    key_goal_sym = "GOT_KEY"
+    reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
+    door_goal_sym = "AT_DOOR"
+    reach_door = [f"<<{ext('goal')} --> [reached]> =/> {door_goal_sym}>."]
+    complete_goal_sym = "COMPLETE"
+    complete_goal = [f"<({key_goal_sym} &/ {door_goal_sym}) =/> {complete_goal_sym}>."]
+
+    KEY_GOAL = Goal(key_goal_sym, partial(object_reached, "key"), reach_key)
+    DOOR_GOAL = Goal(door_goal_sym, partial(object_reached, "goal"), reach_door)
+    COMPLETE_GOAL = Goal(
+        complete_goal_sym,
+        lambda evst: KEY_GOAL.satisfied(evst) and DOOR_GOAL.satisfied(evst),
+        complete_goal,
+    )
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
 
     goals = [
-        DOOR_GOAL,
+        COMPLETE_GOAL,
         REWARD_GOAL,
     ]
-    persistent_goal = DOOR_GOAL
+    persistent_goal = COMPLETE_GOAL
 
     # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
     process_cmd = [
@@ -267,6 +288,9 @@ if __name__ == "__main__":
     # For now we will just use `get_state` to get the state
     env_state = env.get_state()  # type: ignore
 
+    # send background knowledge
+    for statement in background_knowledge:
+        send_input(SOCKET, statement)
     # send goal knowledge
     if persistent_goal.knowledge is not None:
         for belief in persistent_goal.knowledge:
@@ -280,7 +304,7 @@ if __name__ == "__main__":
     tb_writer = SummaryWriter(comment="-nars-zelda")
     agent = ZeldaAgent(env)
     # TRAINING LOOP
-    for s in range(100):
+    for s in range(10000):
         send_observation(
             SOCKET, process, env_state
         )  # TODO: remove duplicate first observation
@@ -302,12 +326,16 @@ if __name__ == "__main__":
         satisfied_goals = [g.satisfied(env_state) for g in goals]
         for g, sat in zip(goals, satisfied_goals):
             if sat:
-                ic(f"{g.symbol} satisfied.")
+                if g.symbol == key_goal_sym and agent.has_key:
+                    continue
+                print(f"{g.symbol} satisfied.")
                 send_input(SOCKET, nal_now(g.symbol))
                 get_raw_output(process)
+                if g.symbol == key_goal_sym:
+                    agent.has_key = True
 
-        env.render(observer="global")  # type: ignore # Renders the entire environment
-        sleep(1)
+        # env.render(observer="global")  # type: ignore # Renders the entire environment
+        # sleep(1)
 
         if done:
             total_reward += episode_reward
@@ -315,6 +343,7 @@ if __name__ == "__main__":
             env.reset()
             num_episodes += 1
             episode_reward = 0.0
+            agent.has_key = False
 
     # tb_writer.add_scalar("train/episode_reward", episode_reward, num_episodes)
     print(f"Average total reward per episode: {total_reward / num_episodes}.")
