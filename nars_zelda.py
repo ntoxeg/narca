@@ -361,11 +361,11 @@ if __name__ == "__main__":
             # sleep(1)
 
             if done:
-                total_reward += episode_reward
-                tb_writer.add_scalar("train/episode_reward", episode_reward, episode)
-                episode_reward = 0.0
-                send_input(agent.process, nal_now("RESET"))
                 break
+        total_reward += episode_reward
+        tb_writer.add_scalar("train/episode_reward", episode_reward, episode)
+        episode_reward = 0.0
+        send_input(agent.process, nal_now("RESET"))
 
     # tb_writer.add_scalar("train/episode_reward", episode_reward, num_episodes)
     print(f"Average total reward per episode: {total_reward / NUM_EPISODES}.")
