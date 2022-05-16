@@ -1,5 +1,4 @@
 import logging
-import socket
 from typing import Any, Optional
 
 import pexpect
@@ -7,21 +6,17 @@ from icecream import ic
 
 from .utils import *
 
-IP = "127.0.0.1"
-PORT = 50000
-SOCKET = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 logger = logging.getLogger(__name__)
 
 
-def send_input(socket: socket.socket, input_: str) -> None:
+def send_input(process: pexpect.spawn, input_: str) -> None:
     """Send input to NARS server"""
-    socket.sendto((input_ + "\0").encode(), (IP, PORT))
+    process.sendline(input_)
 
 
 def get_raw_output(process: pexpect.spawn) -> list[str]:
     """Get raw output from NARS server"""
-    # HACK: use socket to send input
-    send_input(SOCKET, "0")
+    process.sendline("0")
     process.expect(["done with 0 additional inference steps.", pexpect.EOF])
     output = [s.strip().decode("utf-8") for s in process.before.split(b"\n")][2:-3]  # type: ignore
     logger.debug("\n".join(output))
@@ -54,7 +49,6 @@ def get_output(process: pexpect.spawn) -> dict[str, Any]:
 
 
 def expect_output(
-    sock: socket.socket,
     process: pexpect.spawn,
     targets: list[str],
     think_ticks: int = 5,
@@ -72,25 +66,25 @@ def expect_output(
         patience -= 1
 
         if goal_reentry is not None:
-            send_input(sock, nal_demand(goal_reentry.symbol))
+            process.sendline(nal_demand(goal_reentry.symbol))
 
-        send_input(sock, str(think_ticks))
+        process.sendline(str(think_ticks))
         output = get_output(process)
     # ic("Got a matching output.")
     return output
 
 
-def setup_nars_ops(socket: socket.socket, ops: dict[str, int]):
+def setup_nars_ops(process: pexpect.spawn, ops: dict[str, int]):
     """Setup NARS operations"""
     for op in ops:
-        send_input(socket, f"*setopname {ops[op]} {op}")
-    # send_input(socket, f"*babblingops={len(ops)}")
-    send_input(socket, "*babblingops=5")
+        process.sendline(f"*setopname {ops[op]} {op}")
+    # process.sendline(f"*babblingops={len(ops)}")
+    process.sendline("*babblingops=5")
 
 
-def setup_nars(socket: socket.socket, ops: dict[str, int]):
+def setup_nars(process: pexpect.spawn, ops: dict[str, int]):
     """Send NARS settings"""
-    send_input(socket, "*reset")
-    setup_nars_ops(socket, ops)
-    send_input(socket, "*motorbabbling=0.05")
-    # send_input(socket, "*volume=0")
+    process.sendline("*reset")
+    setup_nars_ops(process, ops)
+    process.sendline("*motorbabbling=0.05")
+    # process.sendline("*volume=0")

@@ -1,7 +1,6 @@
 import logging
 import os
 import random
-import socket
 from functools import partial
 from pathlib import Path
 from time import sleep
@@ -16,7 +15,7 @@ from tensorboardX import SummaryWriter
 
 from narca.agent import Agent
 from narca.astar import *
-from narca.udpnar import *
+from narca.nar import *
 from narca.utils import *
 
 # setup a logger for nars output
@@ -32,6 +31,8 @@ NARS_OPERATIONS = {
     "^attack": 5,
     "^goto": 6,
 }
+NUM_EPISODES = 5
+MAX_ITERATIONS = 100
 
 
 def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
@@ -66,22 +67,72 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
 class ZeldaAgent(Agent):
     """Agent for Zelda"""
 
-    def __init__(self, env: gym.Env):
+    def __init__(
+        self,
+        env: gym.Env,
+        goal: Goal,
+        think_ticks: int = 5,
+        background_knowledge=None,
+    ):
         super().__init__(env)
+        self.goal = goal
+        self.has_key = False
+        self.think_ticks = think_ticks
+        self.background_knowledge = background_knowledge
+
+        # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
+        # process_cmd = [
+        #     (NARS_PATH / "NAR").as_posix(),
+        #     "UDPNAR",
+        #     IP,
+        #     str(PORT),
+        #     "1000000",
+        #     "true",
+        # ]
+        # ./NAR shell
+        process_cmd = [
+            (NARS_PATH / "NAR").as_posix(),
+            "shell",
+        ]
+        # process = subprocess.Popen(
+        #     process_cmd,
+        #     stdout=subprocess.PIPE,
+        #     universal_newlines=True,
+        # )
+        self.process: pexpect.spawn = pexpect.spawn(process_cmd[0], process_cmd[1:])
+        # sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
+
+        # setup NARS
+        setup_nars(self.process, NARS_OPERATIONS)
+        # logger.info("\n".join(get_raw_output(self.process)))
+
+        # send background knowledge
+        if self.background_knowledge is not None:
+            for statement in self.background_knowledge:
+                send_input(self.process, statement)
+        # send goal knowledge
+        if self.goal.knowledge is not None:
+            for belief in self.goal.knowledge:
+                send_input(self.process, belief)
+
+    def reset(self):
+        self.env.reset()
         self.has_key = False
 
     def plan(self) -> list[list[int]]:
+        # determine the action to take from NARS
+        send_input(self.process, nal_demand(self.goal.symbol))
+
         nars_output = expect_output(
-            SOCKET,
-            process,
+            self.process,
             list(NARS_OPERATIONS.keys()),
-            goal_reentry=persistent_goal,
-            think_ticks=5,
+            goal_reentry=self.goal,
+            think_ticks=self.think_ticks,
         )
 
         if nars_output is None:
             op = random.choice(list(NARS_OPERATIONS.keys()))
-            send_input(SOCKET, nal_now(op))  # FIXME: handle arguments
+            send_input(self.process, nal_now(op))  # FIXME: handle arguments
             nars_output = {"executions": [{"operator": op, "arguments": []}]}
 
         return self.determine_actions(nars_output)
@@ -97,7 +148,7 @@ class ZeldaAgent(Agent):
         }
 
         if len(nars_output["executions"]) < 1:
-            raise ValueError("No executions found.")
+            raise RuntimeError("No operator executions found from NAR.")
         for exe in nars_output[
             "executions"
         ]:  # for now we will process the first execution
@@ -125,6 +176,23 @@ class ZeldaAgent(Agent):
             return [[0, to_griddly_id[op]]]
 
         return [[0, 0]]  # noop
+
+    def step(self):
+        actions = self.plan()
+        obs = []
+        reward = 0.0
+        cumr = 0.0
+        done = False
+        info = None
+        for action in actions:
+            obs, reward, done, info = self.env.step(action)
+            cumr += reward
+
+        return obs, reward, cumr, done, info
+
+    def observe(self, complete=False):
+        env_state = self.env.get_state()
+        send_observation(self.process, env_state, complete)
 
 
 def abs_to_rel(avatar, op):
@@ -173,21 +241,18 @@ def got_rewarded(env_state: dict) -> bool:
     return env_state["reward"] > 0
 
 
-def make_goal(sock: socket.socket, env_state: dict, goal_symbol: str) -> None:
+def make_goal(process: pexpect.spawn, env_state: dict, goal_symbol: str) -> None:
     """Make an explicit goal using the position of an object"""
     goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
     goal_loc = loc(goal["Location"])
     goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
-    send_input(sock, goal_achievement)
+    send_input(process, goal_achievement)
 
 
-def send_observation(
-    sock: socket.socket, process: pexpect.spawn, env_state: dict, complete=False
-) -> None:
+def send_observation(process: pexpect.spawn, env_state: dict, complete=False) -> None:
     """Send observation to NARS
 
     Args:
-        sock: socket to send observation to
         process: NARS process
         env_state: environment state
         complete: whether to send the complete observation (include wall beliefs)
@@ -197,7 +262,7 @@ def send_observation(
     state_narsese = narsify_from_state(env_state)
     statements = [st for st in state_narsese if "wall" not in st or complete]
     for statement in statements:
-        send_input(sock, statement)
+        send_input(process, statement)
         get_raw_output(process)
     # send_input(sock, narsify_from_state(env_state))
 
@@ -221,11 +286,11 @@ def send_observation(
 #     send_input(SOCKET, f"{symbol}. :|:")
 
 
-def make_loc_goal(sock, pos, goal_symbol):
+def make_loc_goal(process: pexpect.spawn, pos, goal_symbol):
     """Make a goal for a location"""
     goal_loc = loc(pos)
     goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
-    send_input(sock, goal_achievement)
+    send_input(process, goal_achievement)
 
 
 if __name__ == "__main__":
@@ -255,96 +320,53 @@ if __name__ == "__main__":
         COMPLETE_GOAL,
         REWARD_GOAL,
     ]
-    persistent_goal = COMPLETE_GOAL
-
-    # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
-    process_cmd = [
-        (NARS_PATH / "NAR").as_posix(),
-        "UDPNAR",
-        IP,
-        str(PORT),
-        "1000000",
-        "true",
-    ]
-    # ./NAR shell
-    # process_cmd = [
-    #     (NARS_PATH / "NAR").as_posix(),
-    #     "shell",
-    # ]
-    # process = subprocess.Popen(
-    #     process_cmd,
-    #     stdout=subprocess.PIPE,
-    #     universal_newlines=True,
-    # )
-    process = pexpect.spawn(process_cmd[0], process_cmd[1:])
-    sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
-
-    # setup NARS
-    setup_nars(SOCKET, NARS_OPERATIONS)
-    logger.info("\n".join(get_raw_output(process)))
 
     env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
-    obs = env.reset()
-    # For now we will just use `get_state` to get the state
-    env_state = env.get_state()  # type: ignore
-
-    # send background knowledge
-    for statement in background_knowledge:
-        send_input(SOCKET, statement)
-    # send goal knowledge
-    if persistent_goal.knowledge is not None:
-        for belief in persistent_goal.knowledge:
-            send_input(SOCKET, belief)
-    # send first observation (complete)
-    send_observation(SOCKET, process, env_state, complete=True)
 
     total_reward = 0.0
     episode_reward = 0.0
-    num_episodes = 1
     tb_writer = SummaryWriter(comment="-nars-zelda")
-    agent = ZeldaAgent(env)
+    agent = ZeldaAgent(
+        env,
+        COMPLETE_GOAL,
+        think_ticks=7,
+        background_knowledge=background_knowledge,
+    )
+    done = False
     # TRAINING LOOP
-    for s in range(10000):
-        send_observation(
-            SOCKET, process, env_state
-        )  # TODO: remove duplicate first observation
+    for episode in range(NUM_EPISODES):
+        agent.reset()
 
-        # determine the action to take from NARS
-        send_input(SOCKET, nal_demand(persistent_goal.symbol))
-        # send_input(SOCKET, "10")
+        for i in range(MAX_ITERATIONS):
+            agent.observe(complete=i % 10 == 0)
 
-        reward = 0.0
-        done = False
-        actions = agent.plan()
-        for action in actions:
-            obs, reward, done, info = env.step(action)
-            episode_reward += reward
+            obs, reward, cumr, done, info = agent.step()
+            episode_reward += cumr
 
-        env_state = env.get_state()  # type: ignore
-        env_state["reward"] = reward
+            env_state = agent.env.get_state()  # type: ignore
+            env_state["reward"] = reward
 
-        satisfied_goals = [g.satisfied(env_state) for g in goals]
-        for g, sat in zip(goals, satisfied_goals):
-            if sat:
-                if g.symbol == key_goal_sym and agent.has_key:
-                    continue
-                print(f"{g.symbol} satisfied.")
-                send_input(SOCKET, nal_now(g.symbol))
-                get_raw_output(process)
-                if g.symbol == key_goal_sym:
-                    agent.has_key = True
+            satisfied_goals = [g.satisfied(env_state) for g in goals]
+            for g, sat in zip(goals, satisfied_goals):
+                if sat:
+                    if g.symbol == key_goal_sym and agent.has_key:
+                        continue
+                    print(f"{g.symbol} satisfied.")
+                    send_input(agent.process, nal_now(g.symbol))
+                    get_raw_output(agent.process)
+                    if g.symbol == key_goal_sym:
+                        agent.has_key = True
 
-        # env.render(observer="global")  # type: ignore # Renders the entire environment
-        # sleep(1)
+            env.render(observer="global")  # type: ignore # Renders the entire environment
+            # sleep(1)
 
-        if done:
-            total_reward += episode_reward
-            tb_writer.add_scalar("train/episode_reward", episode_reward, num_episodes)
-            env.reset()
-            num_episodes += 1
-            episode_reward = 0.0
-            agent.has_key = False
+            if done:
+                total_reward += episode_reward
+                tb_writer.add_scalar("train/episode_reward", episode_reward, episode)
+                episode_reward = 0.0
+                send_input(agent.process, nal_now("RESET"))
+                break
 
     # tb_writer.add_scalar("train/episode_reward", episode_reward, num_episodes)
-    print(f"Average total reward per episode: {total_reward / num_episodes}.")
+    print(f"Average total reward per episode: {total_reward / NUM_EPISODES}.")
     env.close()  # Call explicitly to avoid exception on quit
