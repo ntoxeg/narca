@@ -37,7 +37,6 @@ MAX_ITERATIONS = 100
 
 def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
     """Produce NARS statements from environment semantic state"""
-    # TODO: determine if a single `wall` entity would be preferable
     # TODO: handle the case where every type of an object can be a multiple
     special_types = ["wall", "avatar"]
 
@@ -61,7 +60,101 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
         f"<({ext('wall' + str(i))} * {loc(pos)}) --> at>. :|:" for i, pos in walls
     ]
 
-    return avatar_beliefs + object_beliefs + wall_beliefs
+    return avatar_beliefs + object_beliefs + wall_beliefs + relative_beliefs(env_state)
+
+
+def relative_beliefs(env_state: dict) -> list[str]:
+    """Produce NARS statements about relative positions of objects"""
+    beliefs = []
+    # we need to process the key, the spider and the goal (door)
+    try:
+        key = next(obj for obj in env_state["Objects"] if obj["Name"] == "key")
+    except StopIteration:
+        key = None
+    try:
+        spider = next(obj for obj in env_state["Objects"] if obj["Name"] == "spider")
+    except StopIteration:
+        spider = None
+    try:
+        goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
+    except StopIteration:
+        return []
+    try:
+        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
+    except StopIteration:
+        return []
+
+    # we need to know the orientation of the avatar
+    orient = avatar["Orientation"]
+    if orient == "NONE":
+        return []
+
+    # we need to know the location of the avatar
+    avatar_loc = avatar["Location"]
+
+    # check if the key in in 180 degree arc in front
+    if key is not None:
+        key_loc = key["Location"]
+        relpos = nal_rel_pos("key", orient, avatar_loc, key_loc)
+        if relpos is not None:
+            beliefs.append(relpos)
+
+    # check if the spider is in front
+    if spider is not None:
+        spider_loc = spider["Location"]
+        relpos = nal_rel_pos("spider", orient, avatar_loc, spider_loc)
+        if relpos is not None:
+            beliefs.append(relpos)
+
+    # check if the goal is in front
+    goal_loc = goal["Location"]
+    relpos = nal_rel_pos("goal", orient, avatar_loc, goal_loc)
+    if relpos is not None:
+        beliefs.append(relpos)
+
+    return beliefs
+
+
+def nal_rel_pos(obname, orient, avatar_loc, obloc) -> Optional[str]:
+    """Produce NARS statement about relative position of an object w.r.t. avatar
+
+    The object is required to be in front of the avatar.
+    """
+    match orient:
+        case "UP":
+            if obloc[1] < avatar_loc[1]:
+                if obloc[0] == avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [ahead]>")
+                if obloc[0] < avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [ahead leftward]>")
+                if obloc[0] > avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [ahead rightward]>")
+        case "RIGHT":
+            if obloc[0] > avatar_loc[0]:
+                if obloc[1] == avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [ahead]>")
+                if obloc[1] < avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [ahead leftward]>")
+                if obloc[1] > avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [ahead rightward]>")
+        case "DOWN":
+            if obloc[1] > avatar_loc[1]:
+                if obloc[0] == avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [ahead]>")
+                if obloc[0] < avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [ahead rightward]>")
+                if obloc[0] > avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [ahead leftward]>")
+        case "LEFT":
+            if obloc[0] < avatar_loc[0]:
+                if obloc[1] == avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [ahead]>")
+                if obloc[1] < avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [ahead rightward]>")
+                if obloc[1] > avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [ahead leftward]>")
+
+    return None
 
 
 class ZeldaAgent(Agent):
