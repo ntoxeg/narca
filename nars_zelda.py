@@ -29,9 +29,9 @@ NARS_OPERATIONS = {
     "^rotate_right": 3,
     "^move_backwards": 4,
     "^attack": 5,
-    "^goto": 6,
+    # "^goto": 6,
 }
-NUM_EPISODES = 5
+NUM_EPISODES = 50
 MAX_ITERATIONS = 100
 
 
@@ -60,7 +60,8 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
         f"<({ext('wall' + str(i))} * {loc(pos)}) --> at>. :|:" for i, pos in walls
     ]
 
-    return avatar_beliefs + object_beliefs + wall_beliefs + relative_beliefs(env_state)
+    # NEXT: remove absolute position beliefs
+    return relative_beliefs(env_state)
 
 
 def relative_beliefs(env_state: dict) -> list[str]:
@@ -124,35 +125,35 @@ def nal_rel_pos(obname, orient, avatar_loc, obloc) -> Optional[str]:
         case "UP":
             if obloc[1] < avatar_loc[1]:
                 if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [ahead]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
                 if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [ahead leftward]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
                 if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [ahead rightward]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
         case "RIGHT":
             if obloc[0] > avatar_loc[0]:
                 if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [ahead]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
                 if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [ahead leftward]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
                 if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [ahead rightward]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
         case "DOWN":
             if obloc[1] > avatar_loc[1]:
                 if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [ahead]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
                 if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [ahead rightward]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
                 if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [ahead leftward]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
         case "LEFT":
             if obloc[0] < avatar_loc[0]:
                 if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [ahead]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
                 if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [ahead rightward]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
                 if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [ahead leftward]>")
+                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
 
     return None
 
@@ -221,12 +222,14 @@ class ZeldaAgent(Agent):
             list(NARS_OPERATIONS.keys()),
             goal_reentry=self.goal,
             think_ticks=self.think_ticks,
+            patience=1,
         )
 
         if nars_output is None:
-            op = random.choice(list(NARS_OPERATIONS.keys()))
-            send_input(self.process, nal_now(op))  # FIXME: handle arguments
-            nars_output = {"executions": [{"operator": op, "arguments": []}]}
+            # op = random.choice(list(NARS_OPERATIONS.keys()))
+            # send_input(self.process, nal_now(op))  # FIXME: handle arguments
+            # nars_output = {"executions": [{"operator": op, "arguments": []}]}
+            return [[0, 0]]
 
         return self.determine_actions(nars_output)
 
@@ -262,6 +265,8 @@ class ZeldaAgent(Agent):
 
                 ic("Executing ^goto with args:", args)
                 path_ops = pathfind(avatar["Location"], pos(args[1]))
+                if len(path_ops) == 0:
+                    return [[0, 0]]
                 rel_ops = abs_to_rel(avatar, path_ops[0])
                 return [[0, to_griddly_id[op]] for op in rel_ops]
             if op == "^attack":
@@ -313,7 +318,7 @@ def abs_to_rel(avatar, op):
     return ["^rotate_right"] * dor + ["^move_forwards"]
 
 
-def object_reached(obj_type: str, env_state: dict) -> bool:
+def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
     """Check if an object has been reached
 
     Assumes that if the object does not exist, then it must have been reached.
@@ -330,7 +335,7 @@ def object_reached(obj_type: str, env_state: dict) -> bool:
     return avatar["Location"] == target["Location"]
 
 
-def got_rewarded(env_state: dict) -> bool:
+def got_rewarded(env_state: dict, _) -> bool:
     return env_state["reward"] > 0
 
 
@@ -386,12 +391,27 @@ def make_loc_goal(process: pexpect.spawn, pos, goal_symbol):
     send_input(process, goal_achievement)
 
 
+def key_check(_, info):
+    history = info["History"]
+    if len(history) == 0:
+        return False
+    last_event = history[-1]
+    return last_event["DestinationObjectName"] == "key"
+
+
 if __name__ == "__main__":
+    env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
+    env.enable_history(True)  # type: ignore
+
     reach_object_knowledge = [
         f"<(<($obj * #location) --> at> &/ <({ext('SELF')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
     ]
-    # background_knowledge = reach_object_knowledge
-    background_knowledge = []
+    rel_pos_knowledge = [
+        f"<(<$obj --> [ahead]> &/ ^move_forwards) =/> <$obj --> [reached]>>.",
+        f"<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
+        f"<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
+    ]
+    background_knowledge = rel_pos_knowledge
 
     key_goal_sym = "GOT_KEY"
     reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
@@ -400,31 +420,31 @@ if __name__ == "__main__":
     complete_goal_sym = "COMPLETE"
     complete_goal = [f"<({key_goal_sym} &/ {door_goal_sym}) =/> {complete_goal_sym}>."]
 
-    KEY_GOAL = Goal(key_goal_sym, partial(object_reached, "key"), reach_key)
+    KEY_GOAL = Goal(key_goal_sym, key_check, reach_key)
     DOOR_GOAL = Goal(door_goal_sym, partial(object_reached, "goal"), reach_door)
     COMPLETE_GOAL = Goal(
         complete_goal_sym,
-        lambda evst: KEY_GOAL.satisfied(evst) and DOOR_GOAL.satisfied(evst),
+        lambda evst, info: agent.has_key and DOOR_GOAL.satisfied(evst, info),
         complete_goal,
     )
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
 
     goals = [
+        KEY_GOAL,
+        DOOR_GOAL,
         COMPLETE_GOAL,
         REWARD_GOAL,
     ]
 
-    env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
-
-    total_reward = 0.0
-    episode_reward = 0.0
-    tb_writer = SummaryWriter(comment="-nars-zelda")
     agent = ZeldaAgent(
         env,
         COMPLETE_GOAL,
-        think_ticks=7,
+        think_ticks=10,
         background_knowledge=background_knowledge,
     )
+    total_reward = 0.0
+    episode_reward = 0.0
+    tb_writer = SummaryWriter(comment="-nars-zelda")
     done = False
     # TRAINING LOOP
     for episode in range(NUM_EPISODES):
@@ -439,14 +459,13 @@ if __name__ == "__main__":
             env_state = agent.env.get_state()  # type: ignore
             env_state["reward"] = reward
 
-            satisfied_goals = [g.satisfied(env_state) for g in goals]
+            satisfied_goals = [g.satisfied(env_state, info) for g in goals]
             for g, sat in zip(goals, satisfied_goals):
                 if sat:
-                    if g.symbol == key_goal_sym and agent.has_key:
-                        continue
                     print(f"{g.symbol} satisfied.")
                     send_input(agent.process, nal_now(g.symbol))
                     get_raw_output(agent.process)
+
                     if g.symbol == key_goal_sym:
                         agent.has_key = True
 
@@ -455,6 +474,8 @@ if __name__ == "__main__":
 
             if done:
                 break
+
+        print(f"Episode {episode+1} finished with reward {episode_reward}.")
         total_reward += episode_reward
         tb_writer.add_scalar("train/episode_reward", episode_reward, episode)
         episode_reward = 0.0

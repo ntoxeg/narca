@@ -52,7 +52,7 @@ def expect_output(
     process: pexpect.spawn,
     targets: list[str],
     think_ticks: int = 5,
-    patience: int = 10,
+    patience: int = 3,
     goal_reentry: Optional[Goal] = None,
 ) -> Optional[dict[str, Any]]:
     # TODO: refactor - this is basically for dealing with executions
@@ -86,5 +86,5 @@ def setup_nars(process: pexpect.spawn, ops: dict[str, int]):
     """Send NARS settings"""
     process.sendline("*reset")
     setup_nars_ops(process, ops)
-    process.sendline("*motorbabbling=0.05")
+    process.sendline("*motorbabbling=0.1")
     # process.sendline("*volume=0")
