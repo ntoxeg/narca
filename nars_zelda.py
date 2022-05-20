@@ -323,16 +323,32 @@ def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
 
     Assumes that if the object does not exist, then it must have been reached.
     """
-    try:
-        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    except StopIteration:
-        ic("No avatar found. Goal unsatisfiable.")
+    # try:
+    #     avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
+    # except StopIteration:
+    #     ic("No avatar found. Goal unsatisfiable.")
+    #     return False
+    # try:
+    #     target = next(obj for obj in env_state["Objects"] if obj["Name"] == obj_type)
+    # except StopIteration:
+    #     return True
+    # return avatar["Location"] == target["Location"]
+    history = info["History"]
+    if len(history) == 0:
         return False
-    try:
-        target = next(obj for obj in env_state["Objects"] if obj["Name"] == obj_type)
-    except StopIteration:
+
+    last_event = history[-1]
+    if (
+        last_event["SourceObjectName"] == "avatar"
+        and last_event["DestinationObjectName"] == obj_type
+    ):
+        send_input(
+            agent.process,
+            nal_now(f"<{ext(last_event['DestinationObjectName'])} --> [reached]>"),
+        )
         return True
-    return avatar["Location"] == target["Location"]
+
+    return False
 
 
 def got_rewarded(env_state: dict, _) -> bool:
@@ -365,23 +381,23 @@ def send_observation(process: pexpect.spawn, env_state: dict, complete=False) ->
     # send_input(sock, narsify_from_state(env_state))
 
 
-# def demo_reach_loc(
-#     symbol: str, agent_pos: tuple[int, int], pos: tuple[int, int]
-# ) -> None:
-#     """Demonstrate reaching a location"""
-#     actions_to_take = pathfind(agent_pos, pos)
-#     for action in actions_to_take:
-#         send_input(SOCKET, f"{action}. :|:")
-#         env_state = env.get_state()  # type: ignore
-#         obs, _, done, _ = env.step(to_gym_actions(action, env_state))
-#         send_observation(SOCKET, process, env.get_state())  # type: ignore
+def demo_reach_key(symbol: str) -> None:
+    """Demonstrate reaching the key"""
+    actions_to_take = ["^rotate_left"] + (["^move_forwards"] * 4)
+    for action in actions_to_take:
+        send_input(agent.process, f"{action}. :|:")
+        gym_actions = agent.determine_actions(
+            {"executions": [{"operator": action, "arguments": []}]}
+        )
+        _, _, done, _ = agent.env.step(gym_actions[0])
+        send_observation(agent.process, agent.env.get_state())  # type: ignore
 
-#         env.render(observer="global")  # type: ignore
-#         sleep(1)
-#         if done:
-#             env.reset()
-#             demo_reach_loc(symbol, agent_pos, pos)
-#     send_input(SOCKET, f"{symbol}. :|:")
+        env.render(observer="global")  # type: ignore
+        sleep(1)
+        if done:
+            env.reset()
+            demo_reach_key(symbol)
+    send_input(agent.process, nal_now(symbol))
 
 
 def make_loc_goal(process: pexpect.spawn, pos, goal_symbol):
@@ -391,12 +407,15 @@ def make_loc_goal(process: pexpect.spawn, pos, goal_symbol):
     send_input(process, goal_achievement)
 
 
-def key_check(_, info):
+def key_check(_, info) -> bool:
     history = info["History"]
     if len(history) == 0:
         return False
     last_event = history[-1]
-    return last_event["DestinationObjectName"] == "key"
+    return (
+        last_event["SourceObjectName"] == "avatar"
+        and last_event["DestinationObjectName"] == "key"
+    )
 
 
 if __name__ == "__main__":
@@ -420,7 +439,7 @@ if __name__ == "__main__":
     complete_goal_sym = "COMPLETE"
     complete_goal = [f"<({key_goal_sym} &/ {door_goal_sym}) =/> {complete_goal_sym}>."]
 
-    KEY_GOAL = Goal(key_goal_sym, key_check, reach_key)
+    KEY_GOAL = Goal(key_goal_sym, partial(object_reached, "key"), reach_key)
     DOOR_GOAL = Goal(door_goal_sym, partial(object_reached, "goal"), reach_door)
     COMPLETE_GOAL = Goal(
         complete_goal_sym,
@@ -478,6 +497,7 @@ if __name__ == "__main__":
         print(f"Episode {episode+1} finished with reward {episode_reward}.")
         total_reward += episode_reward
         tb_writer.add_scalar("train/episode_reward", episode_reward, episode)
+        tb_writer.add_scalar("train/total_reward", total_reward, episode)
         episode_reward = 0.0
         send_input(agent.process, nal_now("RESET"))
 
