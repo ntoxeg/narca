@@ -13,10 +13,10 @@ from griddly import gd
 from icecream import ic
 from tensorboardX import SummaryWriter
 
-from narca.agent import Agent
 from narca.astar import *
 from narca.nar import *
 from narca.utils import *
+from narca.zelda import ZeldaAgent, demo_reach_key
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
@@ -158,141 +158,6 @@ def nal_rel_pos(obname, orient, avatar_loc, obloc) -> Optional[str]:
     return None
 
 
-class ZeldaAgent(Agent):
-    """Agent for Zelda"""
-
-    def __init__(
-        self,
-        env: gym.Env,
-        goal: Goal,
-        think_ticks: int = 5,
-        background_knowledge=None,
-    ):
-        super().__init__(env)
-        self.goal = goal
-        self.has_key = False
-        self.think_ticks = think_ticks
-        self.background_knowledge = background_knowledge
-
-        # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
-        # process_cmd = [
-        #     (NARS_PATH / "NAR").as_posix(),
-        #     "UDPNAR",
-        #     IP,
-        #     str(PORT),
-        #     "1000000",
-        #     "true",
-        # ]
-        # ./NAR shell
-        process_cmd = [
-            (NARS_PATH / "NAR").as_posix(),
-            "shell",
-        ]
-        # process = subprocess.Popen(
-        #     process_cmd,
-        #     stdout=subprocess.PIPE,
-        #     universal_newlines=True,
-        # )
-        self.process: pexpect.spawn = pexpect.spawn(process_cmd[0], process_cmd[1:])
-        # sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
-
-        # setup NARS
-        setup_nars(self.process, NARS_OPERATIONS)
-        # logger.info("\n".join(get_raw_output(self.process)))
-
-        # send background knowledge
-        if self.background_knowledge is not None:
-            for statement in self.background_knowledge:
-                send_input(self.process, statement)
-        # send goal knowledge
-        if self.goal.knowledge is not None:
-            for belief in self.goal.knowledge:
-                send_input(self.process, belief)
-
-    def reset(self):
-        self.env.reset()
-        self.has_key = False
-
-    def plan(self) -> list[list[int]]:
-        # determine the action to take from NARS
-        send_input(self.process, nal_demand(self.goal.symbol))
-
-        nars_output = expect_output(
-            self.process,
-            list(NARS_OPERATIONS.keys()),
-            goal_reentry=self.goal,
-            think_ticks=self.think_ticks,
-            patience=1,
-        )
-
-        if nars_output is None:
-            # op = random.choice(list(NARS_OPERATIONS.keys()))
-            # send_input(self.process, nal_now(op))  # FIXME: handle arguments
-            # nars_output = {"executions": [{"operator": op, "arguments": []}]}
-            return [[0, 0]]
-
-        return self.determine_actions(nars_output)
-
-    def determine_actions(self, nars_output: dict[str, Any]) -> list[list[int]]:
-        """Determine appropriate Gym actions based on NARS output"""
-        env_state = self.env.get_state()
-        to_griddly_id = {
-            "^rotate_left": 1,
-            "^move_forwards": 2,
-            "^rotate_right": 3,
-            "^move_backwards": 4,
-        }
-
-        if len(nars_output["executions"]) < 1:
-            raise RuntimeError("No operator executions found from NAR.")
-        for exe in nars_output[
-            "executions"
-        ]:  # for now we will process the first execution
-            ic(exe)
-            op = exe["operator"]
-            args = exe["arguments"]
-            if op == "^goto":
-                avatar = next(
-                    obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
-                )
-
-                if len(args) < 2:
-                    ic("Not enough arguments received, assuming random coordinates.")
-                    args = [
-                        "{SELF}",
-                        loc((random.randint(0, 6), random.randint(0, 6))),
-                    ]
-
-                ic("Executing ^goto with args:", args)
-                path_ops = pathfind(avatar["Location"], pos(args[1]))
-                if len(path_ops) == 0:
-                    return [[0, 0]]
-                rel_ops = abs_to_rel(avatar, path_ops[0])
-                return [[0, to_griddly_id[op]] for op in rel_ops]
-            if op == "^attack":
-                return [[1, 1]]
-            return [[0, to_griddly_id[op]]]
-
-        return [[0, 0]]  # noop
-
-    def step(self):
-        actions = self.plan()
-        obs = []
-        reward = 0.0
-        cumr = 0.0
-        done = False
-        info = None
-        for action in actions:
-            obs, reward, done, info = self.env.step(action)
-            cumr += reward
-
-        return obs, reward, cumr, done, info
-
-    def observe(self, complete=False):
-        env_state = self.env.get_state()
-        send_observation(self.process, env_state, complete)
-
-
 def abs_to_rel(avatar, op):
     orient_to_num = {
         "UP": 0,
@@ -326,37 +191,6 @@ def last_avatar_event(history: list[dict]) -> Optional[dict]:
     return None
 
 
-def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
-    """Check if an object has been reached
-
-    Assumes that if the object does not exist, then it must have been reached.
-    """
-    # try:
-    #     avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    # except StopIteration:
-    #     ic("No avatar found. Goal unsatisfiable.")
-    #     return False
-    # try:
-    #     target = next(obj for obj in env_state["Objects"] if obj["Name"] == obj_type)
-    # except StopIteration:
-    #     return True
-    # return avatar["Location"] == target["Location"]
-    history = info["History"]
-    if len(history) == 0:
-        return False
-
-    last_avent = last_avatar_event(history)
-    if last_avent is not None:
-        if last_avent["DestinationObjectName"] == obj_type:
-            send_input(
-                agent.process,
-                nal_now(f"<{ext(last_avent['DestinationObjectName'])} --> [reached]>"),
-            )
-            return True
-
-    return False
-
-
 def got_rewarded(env_state: dict, _) -> bool:
     return env_state["reward"] > 0
 
@@ -385,37 +219,6 @@ def send_observation(process: pexpect.spawn, env_state: dict, complete=False) ->
         send_input(process, statement)
         get_raw_output(process)
     # send_input(sock, narsify_from_state(env_state))
-
-
-def demo_reach_key(symbol: str) -> None:
-    """Demonstrate reaching the key"""
-    actions_to_take = ["^rotate_left"] + (["^move_forwards"] * 4)
-    for action in actions_to_take:
-        send_input(agent.process, f"{action}. :|:")
-        gym_actions = agent.determine_actions(
-            {"executions": [{"operator": action, "arguments": []}]}
-        )
-        _, reward, done, info = agent.env.step(gym_actions[0])
-        agent.observe()
-
-        env_state = agent.env.get_state()  # type: ignore
-        env_state["reward"] = reward
-
-        satisfied_goals = [g.satisfied(env_state, info) for g in goals]
-        for g, sat in zip(goals, satisfied_goals):
-            if sat:
-                print(f"{g.symbol} satisfied.")
-                send_input(agent.process, nal_now(g.symbol))
-                get_raw_output(agent.process)
-
-                if g.symbol == key_goal_sym:
-                    agent.has_key = True
-
-        agent.env.render(observer="global")  # type: ignore
-        sleep(1)
-        if done:
-            agent.reset()
-            demo_reach_key(symbol)
 
 
 def make_loc_goal(process: pexpect.spawn, pos, goal_symbol):
@@ -483,7 +286,7 @@ if __name__ == "__main__":
     # DEMONSTRATE
     agent.reset()
     print("Demonstration: reaching a key...")
-    demo_reach_key(KEY_GOAL.symbol)
+    demo_reach_key(KEY_GOAL.symbol, agent)
 
     total_reward = 0.0
     episode_reward = 0.0
