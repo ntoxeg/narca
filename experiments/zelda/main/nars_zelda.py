@@ -318,35 +318,31 @@ def abs_to_rel(avatar, op):
     return ["^rotate_right"] * dor + ["^move_forwards"]
 
 
+def last_avatar_event(history: list[dict]) -> Optional[dict]:
+    """Return the last avatar event in the history"""
+    for event in reversed(history):
+        if event["SourceObjectName"] == "avatar":
+            return event
+    return None
+
+
 def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
     """Check if an object has been reached
 
     Assumes that if the object does not exist, then it must have been reached.
     """
-    # try:
-    #     avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    # except StopIteration:
-    #     ic("No avatar found. Goal unsatisfiable.")
-    #     return False
-    # try:
-    #     target = next(obj for obj in env_state["Objects"] if obj["Name"] == obj_type)
-    # except StopIteration:
-    #     return True
-    # return avatar["Location"] == target["Location"]
     history = info["History"]
     if len(history) == 0:
         return False
 
-    last_event = history[-1]
-    if (
-        last_event["SourceObjectName"] == "avatar"
-        and last_event["DestinationObjectName"] == obj_type
-    ):
-        send_input(
-            agent.process,
-            nal_now(f"<{ext(last_event['DestinationObjectName'])} --> [reached]>"),
-        )
-        return True
+    last_avent = last_avatar_event(history)
+    if last_avent is not None:
+        if last_avent["DestinationObjectName"] == obj_type:
+            send_input(
+                agent.process,
+                nal_now(f"<{ext(last_avent['DestinationObjectName'])} --> [reached]>"),
+            )
+            return True
 
     return False
 
