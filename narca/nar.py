@@ -4,7 +4,7 @@ from typing import Any, Optional
 import pexpect
 from icecream import ic
 
-from .utils import *
+from .narsese import *
 
 logger = logging.getLogger(__name__)
 

@@ -15,6 +15,7 @@ from tensorboardX import SummaryWriter
 
 from narca.astar import *
 from narca.nar import *
+from narca.narsese import *
 from narca.utils import *
 from narca.zelda import ZeldaAgent
 

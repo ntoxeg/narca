@@ -5,6 +5,7 @@ from typing import Any, Optional
 import pexpect
 from icecream import ic
 
+from .narsese import *
 from .utils import *
 
 IP = "127.0.0.1"

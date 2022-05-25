@@ -6,9 +6,10 @@ import gym
 import numpy as np
 from griddly.util.rllib.environment.level_generator import LevelGenerator
 
-from narca.agent import Agent
-from narca.astar import pathfind
-from narca.nar import *
+from .agent import Agent
+from .astar import pathfind
+from .nar import *
+from .utils import NARS_PATH, object_reached
 
 NARS_OPERATIONS = {
     "^rotate_left": 1,
@@ -46,13 +47,13 @@ def abs_to_rel(avatar, op):
 
 
 class ZeldaLevelGenerator(LevelGenerator):
-    KEY = "k"
+    KEY = "+"
     GOAL = "g"
 
     AGENT = "A"
 
     WALL = "w"
-    SPIDER = "s"
+    SPIDER = "3"
 
     def __init__(self, config):
         super().__init__(config)
@@ -87,7 +88,7 @@ class ZeldaLevelGenerator(LevelGenerator):
             key_location = possible_locations.pop(key_location_idx)
             map_[key_location[0], key_location[1]] = key_char
 
-            num_keys = 1 + np.random.choice(max_keys - 1)
+            num_keys = 1 + np.random.choice(max_keys - 1) if max_keys > 1 else 1
             for _ in range(num_keys):
                 goal_location_idx = np.random.choice(len(possible_locations))
                 goal_location = possible_locations.pop(goal_location_idx)
@@ -415,7 +416,7 @@ class ZeldaAgent(Agent):
 def demo_reach_key(symbol: str, agent: ZeldaAgent) -> None:
     """Demonstrate reaching the key"""
     reach_key = [f"<({ext('key')} --> [reached]) =/> {symbol}>."]
-    goals = [Goal(symbol, partial(object_reached, "key"), reach_key)]
+    goals = [Goal(symbol, partial(object_reached, agent, "key"), reach_key)]
     actions_to_take = ["^rotate_left"] + (["^move_forwards"] * 4)
     for action in actions_to_take:
         send_input(agent.process, f"{action}. :|:")
