@@ -61,6 +61,8 @@ class ZeldaLevelGenerator(LevelGenerator):
         self._height = config.get("height", 10)
         self._p_key = config.get("p_key", 0.1)
         self._max_goals = config.get("max_goals", 3)
+        self._p_spider = config.get("p_spider", 0.1)
+        self._max_spiders = config.get("max_spiders", 3)
 
     def _place_walls(self, map_: np.chararray) -> np.chararray:
 
@@ -83,16 +85,29 @@ class ZeldaLevelGenerator(LevelGenerator):
         goal_char: str,
         max_keys: int,
     ) -> tuple[np.chararray, list[tuple[int, int]]]:
-        if np.random.random() < probability:
-            key_location_idx = np.random.choice(len(possible_locations))
-            key_location = possible_locations.pop(key_location_idx)
-            map_[key_location[0], key_location[1]] = key_char
+        # TODO: turn into a generic method
+        for _ in range(max_keys):
+            if np.random.random() < probability:
+                key_location_idx = np.random.choice(len(possible_locations))
+                key_location = possible_locations.pop(key_location_idx)
+                map_[key_location[0], key_location[1]] = key_char
 
-            num_keys = 1 + np.random.choice(max_keys - 1) if max_keys > 1 else 1
-            for _ in range(num_keys):
                 goal_location_idx = np.random.choice(len(possible_locations))
                 goal_location = possible_locations.pop(goal_location_idx)
                 map_[goal_location[0], goal_location[1]] = goal_char
+
+        return map_, possible_locations
+
+    def _place_spiders(
+        self, map_: np.chararray, possible_locations: list[tuple[int, int]]
+    ) -> tuple[np.chararray, list[tuple[int, int]]]:
+        for _ in range(self._max_spiders):
+            if np.random.random() < self._p_spider:
+                spider_location_idx = np.random.choice(len(possible_locations))
+                spider_location = possible_locations.pop(spider_location_idx)
+                map_[
+                    spider_location[0], spider_location[1]
+                ] = ZeldaLevelGenerator.SPIDER
 
         return map_, possible_locations
 
@@ -110,7 +125,7 @@ class ZeldaLevelGenerator(LevelGenerator):
             for w in range(1, self._width - 1)
         ]
 
-        # Place Red
+        # Place keys and goals
         map_, possible_locations = self._place_keys_goals(
             map_,
             possible_locations,
@@ -119,6 +134,9 @@ class ZeldaLevelGenerator(LevelGenerator):
             ZeldaLevelGenerator.GOAL,
             self._max_goals,
         )
+
+        # Place spiders
+        map_, possible_locations = self._place_spiders(map_, possible_locations)
 
         # Place Agent
         agent_location_idx = np.random.choice(len(possible_locations))

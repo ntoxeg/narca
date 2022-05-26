@@ -1,10 +1,5 @@
 import logging
-import os
-import random
 from functools import partial
-from pathlib import Path
-from time import sleep
-from typing import Optional
 
 import griddly  # noqa
 import gym
@@ -13,9 +8,7 @@ from griddly import gd
 from icecream import ic
 from tensorboardX import SummaryWriter
 
-from narca.astar import *
 from narca.nar import *
-from narca.narsese import *
 from narca.utils import *
 from narca.zelda import ZeldaAgent
 
@@ -25,6 +18,7 @@ logger = logging.getLogger("nars")
 
 NUM_EPISODES = 50
 MAX_ITERATIONS = 100
+ENV_NAME = "GDY-Zelda-v0"
 
 
 def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
@@ -79,7 +73,7 @@ def key_check(_, info) -> bool:
 
 
 if __name__ == "__main__":
-    env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
+    env = gym.make(ENV_NAME, player_observer_type=gd.ObserverType.VECTOR)
     env.enable_history(True)  # type: ignore
 
     reach_object_knowledge = [

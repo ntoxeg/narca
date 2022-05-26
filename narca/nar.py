@@ -74,17 +74,28 @@ def expect_output(
     return output
 
 
-def setup_nars_ops(process: pexpect.spawn, ops: dict[str, int]):
+def setup_nars_ops(
+    process: pexpect.spawn, ops: dict[str, int], babblingops: Optional[int] = None
+):
     """Setup NARS operations"""
     for op in ops:
         process.sendline(f"*setopname {ops[op]} {op}")
-    # process.sendline(f"*babblingops={len(ops)}")
-    process.sendline("*babblingops=5")
+    if babblingops is None:
+        process.sendline(f"*babblingops={len(ops)}")
+    else:
+        process.sendline(f"*babblingops={babblingops}")
 
 
-def setup_nars(process: pexpect.spawn, ops: dict[str, int]):
+def setup_nars(
+    process: pexpect.spawn,
+    ops: dict[str, int],
+    motorbabbling: float = 0.05,
+    babblingops: Optional[int] = None,
+    volume: Optional[int] = None,
+):
     """Send NARS settings"""
     process.sendline("*reset")
-    setup_nars_ops(process, ops)
-    process.sendline("*motorbabbling=0.1")
-    # process.sendline("*volume=0")
+    setup_nars_ops(process, ops, babblingops=babblingops)
+    process.sendline(f"*motorbabbling={motorbabbling}")
+    if volume is not None:
+        process.sendline(f"*volume={volume}")

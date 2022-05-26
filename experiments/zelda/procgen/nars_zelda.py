@@ -1,10 +1,6 @@
+import json
 import logging
-import os
-import random
 from functools import partial
-from pathlib import Path
-from time import sleep
-from typing import Optional
 
 import griddly  # noqa
 import gym
@@ -13,12 +9,9 @@ from griddly import gd
 from icecream import ic
 from tensorboardX import SummaryWriter
 
-from narca.agent import Agent
-from narca.astar import *
 from narca.nar import *
-from narca.narsese import *
 from narca.utils import *
-from narca.zelda import ZeldaAgent, ZeldaLevelGenerator, send_observation
+from narca.zelda import ZeldaAgent, ZeldaLevelGenerator
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
@@ -26,7 +19,17 @@ logger = logging.getLogger("nars")
 
 NUM_EPISODES = 50
 MAX_ITERATIONS = 100
-LEVELGEN_CONFIG = {"max_goals": 1, "p_key": 1.0}
+ENV_NAME = "GDY-Zelda-v0"
+DIFFICULTY_LEVEL = 1
+
+with open("difficulty_settings.json") as f:
+    difficulty_settings = json.load(f)
+LEVELGEN_CONFIG = difficulty_settings[ENV_NAME][str(DIFFICULTY_LEVEL)] | {
+    "max_goals": 1,
+    "p_key": 1.0,
+    "max_spiders": 1,
+    "p_spider": 1.0,
+}
 
 
 def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
@@ -81,7 +84,7 @@ def key_check(_, info) -> bool:
 
 
 if __name__ == "__main__":
-    env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
+    env = gym.make(ENV_NAME, player_observer_type=gd.ObserverType.VECTOR)
     env.enable_history(True)  # type: ignore
     levelgen = ZeldaLevelGenerator(LEVELGEN_CONFIG)
 
