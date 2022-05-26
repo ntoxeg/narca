@@ -1,10 +1,6 @@
+import json
 import logging
-import os
-import random
 from functools import partial
-from pathlib import Path
-from time import sleep
-from typing import Optional
 
 import griddly  # noqa
 import gym
@@ -13,183 +9,49 @@ from griddly import gd
 from icecream import ic
 from tensorboardX import SummaryWriter
 
-from narca.astar import *
 from narca.nar import *
-from narca.narsese import *
 from narca.utils import *
-from narca.zelda import ZeldaAgent, demo_reach_key
+from narca.zelda import ZeldaAgent, ZeldaLevelGenerator, demo_reach_key
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
 logger = logging.getLogger("nars")
 
-NARS_PATH = Path(os.environ["NARS_HOME"])
-NARS_OPERATIONS = {
-    "^rotate_left": 1,
-    "^move_forwards": 2,
-    "^rotate_right": 3,
-    "^move_backwards": 4,
-    "^attack": 5,
-    # "^goto": 6,
-}
 NUM_EPISODES = 50
 MAX_ITERATIONS = 100
+ENV_NAME = "GDY-Zelda-v0"
+DIFFICULTY_LEVEL = 1
+NUM_DEMOS = 5
+
+with open("difficulty_settings.json") as f:
+    difficulty_settings = json.load(f)
+LEVELGEN_CONFIG = difficulty_settings[ENV_NAME][str(DIFFICULTY_LEVEL)] | {
+    "max_goals": 1,
+    "p_key": 1.0,
+    "max_spiders": 1,
+    "p_spider": 1.0,
+}
 
 
-def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
-    """Produce NARS statements from environment semantic state"""
-    # TODO: handle the case where every type of an object can be a multiple
-    special_types = ["wall", "avatar"]
+def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
+    """Check if an object has been reached
 
-    walls = [
-        (i, obj["Location"])
-        for i, obj in enumerate(env_state["Objects"])
-        if obj["Name"] == "wall"
-    ]
-
-    avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    avatar_loc = f"<({ext('SELF')} * {loc(avatar['Location'])}) --> at>. :|:"
-    avatar_orient = f"<{ext('SELF')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
-    avatar_beliefs = [avatar_loc, avatar_orient]
-
-    object_beliefs = [
-        f"<({ext(obj['Name'])} * {loc(obj['Location'])}) --> at>. :|:"
-        for obj in env_state["Objects"]
-        if obj["Name"] not in special_types
-    ]
-    wall_beliefs = [
-        f"<({ext('wall' + str(i))} * {loc(pos)}) --> at>. :|:" for i, pos in walls
-    ]
-
-    # NEXT: remove absolute position beliefs
-    return relative_beliefs(env_state)
-
-
-def relative_beliefs(env_state: dict) -> list[str]:
-    """Produce NARS statements about relative positions of objects"""
-    beliefs = []
-    # we need to process the key, the spider and the goal (door)
-    try:
-        key = next(obj for obj in env_state["Objects"] if obj["Name"] == "key")
-    except StopIteration:
-        key = None
-    try:
-        spider = next(obj for obj in env_state["Objects"] if obj["Name"] == "spider")
-    except StopIteration:
-        spider = None
-    try:
-        goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
-    except StopIteration:
-        return []
-    try:
-        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    except StopIteration:
-        return []
-
-    # we need to know the orientation of the avatar
-    orient = avatar["Orientation"]
-    if orient == "NONE":
-        return []
-
-    # we need to know the location of the avatar
-    avatar_loc = avatar["Location"]
-
-    # check if the key in in 180 degree arc in front
-    if key is not None:
-        key_loc = key["Location"]
-        relpos = nal_rel_pos("key", orient, avatar_loc, key_loc)
-        if relpos is not None:
-            beliefs.append(relpos)
-
-    # check if the spider is in front
-    if spider is not None:
-        spider_loc = spider["Location"]
-        relpos = nal_rel_pos("spider", orient, avatar_loc, spider_loc)
-        if relpos is not None:
-            beliefs.append(relpos)
-
-    # check if the goal is in front
-    goal_loc = goal["Location"]
-    relpos = nal_rel_pos("goal", orient, avatar_loc, goal_loc)
-    if relpos is not None:
-        beliefs.append(relpos)
-
-    return beliefs
-
-
-def nal_rel_pos(obname, orient, avatar_loc, obloc) -> Optional[str]:
-    """Produce NARS statement about relative position of an object w.r.t. avatar
-
-    The object is required to be in front of the avatar.
+    Assumes that if the object does not exist, then it must have been reached.
     """
-    match orient:
-        case "UP":
-            if obloc[1] < avatar_loc[1]:
-                if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
-                if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
-                if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
-        case "RIGHT":
-            if obloc[0] > avatar_loc[0]:
-                if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
-                if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
-                if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
-        case "DOWN":
-            if obloc[1] > avatar_loc[1]:
-                if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
-                if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
-                if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
-        case "LEFT":
-            if obloc[0] < avatar_loc[0]:
-                if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
-                if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
-                if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
+    history = info["History"]
+    if len(history) == 0:
+        return False
 
-    return None
+    last_avent = last_avatar_event(history)
+    if last_avent is not None:
+        if last_avent["DestinationObjectName"] == obj_type:
+            send_input(
+                agent.process,
+                nal_now(f"<{ext(last_avent['DestinationObjectName'])} --> [reached]>"),
+            )
+            return True
 
-
-def abs_to_rel(avatar, op):
-    orient_to_num = {
-        "UP": 0,
-        "RIGHT": 1,
-        "DOWN": 2,
-        "LEFT": 3,
-        "NONE": 0,  # HACK: assuming that NONE is the same as UP
-    }
-    if avatar["Orientation"] == "NONE":
-        ic("Warning: avatar orientation is NONE. Assuming UP.")
-    avatar_orient = orient_to_num[avatar["Orientation"]]
-    dor = 0
-    match op:
-        case "^up":
-            dor = 4 - avatar_orient if avatar_orient != 0 else 0
-        case "^right":
-            dor = 5 - avatar_orient if avatar_orient != 1 else 0
-        case "^down":
-            dor = 6 - avatar_orient if avatar_orient != 2 else 0
-        case "^left":
-            dor = 7 - avatar_orient if avatar_orient != 3 else 0
-
-    return ["^rotate_right"] * dor + ["^move_forwards"]
-
-
-def last_avatar_event(history: list[dict]) -> Optional[dict]:
-    """Return the last avatar event in the history"""
-    for event in reversed(history):
-        if event["SourceObjectName"] == "avatar":
-            return event
-    return None
+    return False
 
 
 def got_rewarded(env_state: dict, _) -> bool:
@@ -202,24 +64,6 @@ def make_goal(process: pexpect.spawn, env_state: dict, goal_symbol: str) -> None
     goal_loc = loc(goal["Location"])
     goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
     send_input(process, goal_achievement)
-
-
-def send_observation(process: pexpect.spawn, env_state: dict, complete=False) -> None:
-    """Send observation to NARS
-
-    Args:
-        process: NARS process
-        env_state: environment state
-        complete: whether to send the complete observation (include wall beliefs)
-    """
-    # send the observation to NARS
-    # send_input(sock, narsify(obs))
-    state_narsese = narsify_from_state(env_state)
-    statements = [st for st in state_narsese if "wall" not in st or complete]
-    for statement in statements:
-        send_input(process, statement)
-        get_raw_output(process)
-    # send_input(sock, narsify_from_state(env_state))
 
 
 def make_loc_goal(process: pexpect.spawn, pos, goal_symbol):
@@ -241,8 +85,9 @@ def key_check(_, info) -> bool:
 
 
 if __name__ == "__main__":
-    env = gym.make("GDY-Zelda-v0", player_observer_type=gd.ObserverType.VECTOR)
+    env = gym.make(ENV_NAME, player_observer_type=gd.ObserverType.VECTOR)
     env.enable_history(True)  # type: ignore
+    levelgen = ZeldaLevelGenerator(LEVELGEN_CONFIG)
 
     reach_object_knowledge = [
         f"<(<($obj * #location) --> at> &/ <({ext('SELF')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
@@ -285,9 +130,10 @@ if __name__ == "__main__":
     )
 
     # DEMONSTRATE
-    agent.reset()
-    print("Demonstration: reaching a key...")
-    demo_reach_key(KEY_GOAL.symbol, agent)
+    for _ in range(NUM_DEMOS):
+        agent.reset()
+        print("Demonstration: reaching a key...")
+        demo_reach_key(KEY_GOAL.symbol, agent)
 
     total_reward = 0.0
     episode_reward = 0.0
@@ -295,7 +141,7 @@ if __name__ == "__main__":
     done = False
     # TRAINING LOOP
     for episode in range(NUM_EPISODES):
-        agent.reset()
+        agent.reset(level_string=levelgen.generate())
 
         for i in range(MAX_ITERATIONS):
             agent.observe(complete=i % 10 == 0)
