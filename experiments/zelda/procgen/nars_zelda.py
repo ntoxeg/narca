@@ -167,6 +167,5 @@ if __name__ == "__main__":
         episode_reward = 0.0
         send_input(agent.process, nal_now("RESET"))
 
-    # tb_writer.add_scalar("train/episode_reward", episode_reward, num_episodes)
     print(f"Average total reward per episode: {total_reward / NUM_EPISODES}.")
     env.close()  # Call explicitly to avoid exception on quit

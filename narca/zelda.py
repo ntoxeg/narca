@@ -111,6 +111,73 @@ class ZeldaLevelGenerator(LevelGenerator):
 
         return map_, possible_locations
 
+    def _level_string(self, map_: np.chararray) -> str:
+        level_string = ""
+        for h in range(0, self._height):
+            for w in range(0, self._width):
+                level_string += map_[w, h].decode().ljust(4)
+            level_string += "\n"
+
+        return level_string
+
+    def _rotation_transition(self, orient: str, action: str) -> str:
+        match action:
+            case "^rotate_left":
+                match orient:
+                    case "UP":
+                        return "LEFT"
+                    case "RIGHT":
+                        return "UP"
+                    case "DOWN":
+                        return "RIGHT"
+                    case "LEFT":
+                        return "DOWN"
+            case "^rotate_right":
+                match orient:
+                    case "UP":
+                        return "RIGHT"
+                    case "RIGHT":
+                        return "DOWN"
+                    case "DOWN":
+                        return "LEFT"
+                    case "LEFT":
+                        return "UP"
+
+        ic("Warning: invalid action/orientation combination.")
+        return orient
+
+    def _action_transition(
+        self, state: tuple[int, int, str], action: str
+    ) -> tuple[int, int, str]:
+        # state is (x, y, orientation)
+        match action:
+            case "^move_forwards":
+                match state[2]:
+                    case "UP":
+                        return state[0], state[1] - 1, state[2]
+                    case "RIGHT":
+                        return state[0] + 1, state[1], state[2]
+                    case "DOWN":
+                        return state[0], state[1] + 1, state[2]
+                    case "LEFT":
+                        return state[0] - 1, state[1], state[2]
+            case "^move_backwards":
+                match state[2]:
+                    case "UP":
+                        return state[0], state[1] + 1, state[2]
+                    case "RIGHT":
+                        return state[0] - 1, state[1], state[2]
+                    case "DOWN":
+                        return state[0], state[1] - 1, state[2]
+                    case "LEFT":
+                        return state[0] + 1, state[1], state[2]
+            case "^rotate_left":
+                return state[0], state[1], self._rotation_transition(state[2], action)
+            case "^rotate_right":
+                return state[0], state[1], self._rotation_transition(state[2], action)
+
+        return state
+
     def generate(self) -> str:
         map_ = np.chararray((self._width, self._height), itemsize=2)
         map_[:] = "."
@@ -143,13 +210,43 @@ class ZeldaLevelGenerator(LevelGenerator):
         agent_location = possible_locations[agent_location_idx]
         map_[agent_location[0], agent_location[1]] = ZeldaLevelGenerator.AGENT
 
-        level_string = ""
-        for h in range(0, self._height):
-            for w in range(0, self._width):
-                level_string += map_[w, h].decode().ljust(4)
-            level_string += "\n"
+        return self._level_string(map_)
 
-        return level_string
+    def generate_for_plan(self, plan: list[str]) -> str:
+        map_ = np.chararray((self._width, self._height), itemsize=2)
+        map_[:] = "."
+
+        # Generate walls
+        map_ = self._place_walls(map_)
+
+        # all possible locations
+        possible_locations = [
+            (w, h)
+            for h in range(1, self._height - 1)
+            for w in range(1, self._width - 1)
+        ]
+
+        # Place spiders
+        map_, possible_locations = self._place_spiders(map_, possible_locations)
+
+        # Place Agent
+        agent_location_idx = np.random.choice(len(possible_locations))
+        agent_location = possible_locations[agent_location_idx]
+        map_[agent_location[0], agent_location[1]] = ZeldaLevelGenerator.AGENT
+
+        # Given the list of actions, place the key and goal
+        agent_state = (agent_location[0], agent_location[1], "UP")
+
+        actions_pre, actions_post = plan[: len(plan) // 2], plan[len(plan) // 2 :]
+        for action in actions_pre:
+            agent_state = self._action_transition(agent_state, action)
+        map_[agent_state[0], agent_state[1]] = ZeldaLevelGenerator.KEY
+
+        for action in actions_post:
+            agent_state = self._action_transition(agent_state, action)
+        map_[agent_state[0], agent_state[1]] = ZeldaLevelGenerator.GOAL
+
+        return self._level_string(map_)
 
 
 def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
@@ -462,3 +559,34 @@ def demo_reach_key(symbol: str, agent: ZeldaAgent) -> None:
         if done:
             agent.reset()
             demo_reach_key(symbol, agent)
+
+
+def demo_goal(goal: Goal, agent: ZeldaAgent, plan: list[str]) -> None:
+    """Demonstrate reaching the key"""
+    goals = [goal]
+    for action in plan:
+        send_input(agent.process, f"{action}. :|:")
+        gym_actions = agent.determine_actions(
+            {"executions": [{"operator": action, "arguments": []}]}
+        )
+        _, reward, done, info = agent.env.step(gym_actions[0])
+        agent.observe()
+
+        env_state = agent.env.get_state()  # type: ignore
+        env_state["reward"] = reward
+
+        satisfied_goals = [g.satisfied(env_state, info) for g in goals]
+        for g, sat in zip(goals, satisfied_goals):
+            if sat:
+                print(f"{g.symbol} satisfied.")
+                send_input(agent.process, nal_now(g.symbol))
+                get_raw_output(agent.process)
+
+                if g.symbol == "GOT_KEY":
+                    agent.has_key = True
+
+        agent.env.render(observer="global")  # type: ignore
+        sleep(1)
+        if done:
+            agent.reset()  # TODO: track level string in agent
+            demo_goal(goal, agent, plan)

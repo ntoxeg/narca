@@ -11,7 +11,7 @@ from tensorboardX import SummaryWriter
 
 from narca.nar import *
 from narca.utils import *
-from narca.zelda import ZeldaAgent, ZeldaLevelGenerator, demo_reach_key
+from narca.zelda import ZeldaAgent, ZeldaLevelGenerator, demo_goal
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
@@ -131,9 +131,17 @@ if __name__ == "__main__":
 
     # DEMONSTRATE
     for _ in range(NUM_DEMOS):
-        agent.reset()
-        print("Demonstration: reaching a key...")
-        demo_reach_key(KEY_GOAL.symbol, agent)
+        plan = [
+            "^rotate_left",
+            "^move_forwards",
+            "^move_forwards",
+            "^rotate_right",
+            "^move_forwards",
+            "^move_forwards",
+        ]
+        agent.reset(level_string=levelgen.generate_for_plan(plan))
+        print("Demonstration: completing a level...")
+        demo_goal(COMPLETE_GOAL, agent, plan)
 
     total_reward = 0.0
     episode_reward = 0.0
@@ -175,6 +183,5 @@ if __name__ == "__main__":
         episode_reward = 0.0
         send_input(agent.process, nal_now("RESET"))
 
-    # tb_writer.add_scalar("train/episode_reward", episode_reward, num_episodes)
     print(f"Average total reward per episode: {total_reward / NUM_EPISODES}.")
     env.close()  # Call explicitly to avoid exception on quit
