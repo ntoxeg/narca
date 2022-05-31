@@ -5,6 +5,7 @@ from time import sleep
 import gym
 import numpy as np
 from griddly.util.rllib.environment.level_generator import LevelGenerator
+from tensorboardX import SummaryWriter
 
 from .agent import Agent
 from .astar import pathfind
@@ -260,9 +261,14 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
         if obj["Name"] == "wall"
     ]
 
-    avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    avatar_loc = f"<({ext('SELF')} * {loc(avatar['Location'])}) --> at>. :|:"
-    avatar_orient = f"<{ext('SELF')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
+    try:
+        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
+        avatar_loc = f"<({ext('SELF')} * {loc(avatar['Location'])}) --> at>. :|:"
+        avatar_orient = (
+            f"<{ext('SELF')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
+        )
+    except StopIteration:
+        return []
     avatar_beliefs = [avatar_loc, avatar_orient]
 
     object_beliefs = [
@@ -274,7 +280,6 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
         f"<({ext('wall' + str(i))} * {loc(pos)}) --> at>. :|:" for i, pos in walls
     ]
 
-    # NEXT: remove absolute position beliefs
     return relative_beliefs(env_state)
 
 
@@ -561,32 +566,105 @@ def demo_reach_key(symbol: str, agent: ZeldaAgent) -> None:
             demo_reach_key(symbol, agent)
 
 
-def demo_goal(goal: Goal, agent: ZeldaAgent, plan: list[str]) -> None:
-    """Demonstrate reaching the key"""
-    goals = [goal]
-    for action in plan:
-        send_input(agent.process, f"{action}. :|:")
-        gym_actions = agent.determine_actions(
-            {"executions": [{"operator": action, "arguments": []}]}
+class Runner:
+    """Functionality for running agent interaction episodes"""
+
+    def __init__(
+        self,
+        agent: ZeldaAgent,
+        goals: list[Goal],
+        levelgen: Optional[ZeldaLevelGenerator] = None,
+    ):
+        self.agent = agent
+        self.goals = goals
+        self.levelgen = levelgen
+
+    def run(
+        self,
+        num_episodes: int,
+        max_iterations: int,
+        log_tb: bool = False,
+        comment_suffix: str = "",
+    ) -> None:
+        """Run agent interaction episodes"""
+        total_reward = 0.0
+        episode_reward = 0.0
+        done = False
+        tb_writer = (
+            SummaryWriter(comment=f"-nars-zelda{comment_suffix}") if log_tb else None
         )
-        _, reward, done, info = agent.env.step(gym_actions[0])
-        agent.observe()
 
-        env_state = agent.env.get_state()  # type: ignore
-        env_state["reward"] = reward
+        for episode in range(num_episodes):
+            lvl_str = self.levelgen.generate() if self.levelgen is not None else None
+            self.agent.reset(level_string=lvl_str)
 
-        satisfied_goals = [g.satisfied(env_state, info) for g in goals]
-        for g, sat in zip(goals, satisfied_goals):
-            if sat:
-                print(f"{g.symbol} satisfied.")
-                send_input(agent.process, nal_now(g.symbol))
-                get_raw_output(agent.process)
+            for i in range(max_iterations):
+                self.agent.observe(complete=i % 10 == 0)
 
-                if g.symbol == "GOT_KEY":
-                    agent.has_key = True
+                _, reward, cumr, done, info = self.agent.step()
+                episode_reward += cumr
 
-        agent.env.render(observer="global")  # type: ignore
-        sleep(1)
-        if done:
-            agent.reset()  # TODO: track level string in agent
-            demo_goal(goal, agent, plan)
+                env_state = self.agent.env.get_state()  # type: ignore
+                env_state["reward"] = reward
+
+                satisfied_goals = [g.satisfied(env_state, info) for g in self.goals]
+                for g, sat in zip(self.goals, satisfied_goals):
+                    if sat:
+                        print(f"{g.symbol} satisfied.")
+                        send_input(self.agent.process, nal_now(g.symbol))
+                        get_raw_output(self.agent.process)
+
+                        if g.symbol == "GOT_KEY":
+                            self.agent.has_key = True
+
+                self.agent.env.render(observer="global")  # type: ignore # Renders the entire environment
+
+                if done:
+                    break
+
+            print(f"Episode {episode+1} finished with reward {episode_reward}.")
+            total_reward += episode_reward
+            if tb_writer is not None:
+                tb_writer.add_scalar("train/episode_reward", episode_reward, episode)
+                tb_writer.add_scalar("train/total_reward", total_reward, episode)
+            episode_reward = 0.0
+            send_input(self.agent.process, nal_now("RESET"))
+
+        print(f"Average total reward per episode: {total_reward / num_episodes}.")
+        self.agent.env.close()  # Call explicitly to avoid exception on quit
+
+    def demo_goal(self, plan: list[str]) -> None:
+        """Demonstrate reaching the goal
+
+        Generates levels that fit a given plan.
+        """
+        lvl_str = (
+            self.levelgen.generate_for_plan(plan) if self.levelgen is not None else None
+        )
+
+        self.agent.reset(level_string=lvl_str)
+        for action in plan:
+            send_input(self.agent.process, f"{action}. :|:")
+            gym_actions = self.agent.determine_actions(
+                {"executions": [{"operator": action, "arguments": []}]}
+            )
+            _, reward, done, info = self.agent.env.step(gym_actions[0])
+            self.agent.observe()
+
+            env_state = self.agent.env.get_state()  # type: ignore
+            env_state["reward"] = reward
+
+            satisfied_goals = [g.satisfied(env_state, info) for g in self.goals]
+            for g, sat in zip(self.goals, satisfied_goals):
+                if sat:
+                    print(f"{g.symbol} satisfied.")
+                    send_input(self.agent.process, nal_now(g.symbol))
+                    get_raw_output(self.agent.process)
+
+                    if g.symbol == "GOT_KEY":
+                        self.agent.has_key = True
+
+            self.agent.env.render(observer="global")  # type: ignore
+            sleep(1)
+            if done:
+                self.demo_goal(plan)
