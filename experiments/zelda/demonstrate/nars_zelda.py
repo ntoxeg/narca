@@ -20,7 +20,7 @@ logger = logging.getLogger("nars")
 NUM_EPISODES = 50
 MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Zelda-v0"
-DIFFICULTY_LEVEL = 1
+DIFFICULTY_LEVEL = 2  # difficulty level 1 is too small for demonstrations
 NUM_DEMOS = 5
 
 with open("difficulty_settings.json") as f:

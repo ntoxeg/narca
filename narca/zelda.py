@@ -230,6 +230,14 @@ class ZeldaLevelGenerator(LevelGenerator):
         # Place spiders
         map_, possible_locations = self._place_spiders(map_, possible_locations)
 
+        # Restrict locations based on the length of the plan
+        possible_locations = [
+            (x, y)
+            for x, y in possible_locations
+            if x in range(1 + len(plan), self._width - 1 - len(plan))
+            and y in range(1 + len(plan), self._height - 1 - len(plan))
+        ]
+
         # Place Agent
         agent_location_idx = np.random.choice(len(possible_locations))
         agent_location = possible_locations[agent_location_idx]
@@ -666,5 +674,5 @@ class Runner:
 
             self.agent.env.render(observer="global")  # type: ignore
             sleep(1)
-            if done:
+            if reward < 0.0:  # reward is -1.0 in case of avatar's death
                 self.demo_goal(plan)
