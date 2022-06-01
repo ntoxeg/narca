@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 from .agent import Agent
 from .astar import pathfind
 from .nar import *
-from .utils import NARS_PATH, object_reached
+from .utils import NARS_PATH, manhattan_distance, object_reached
 
 NARS_OPERATIONS = {
     "^rotate_left": 1,
@@ -344,6 +344,7 @@ def relative_beliefs(env_state: dict) -> list[str]:
         relpos = nal_rel_pos("key", orient, avatar_loc, key_loc)
         if relpos is not None:
             beliefs.append(relpos)
+            beliefs.append(nal_distance("key", avatar_loc, key_loc))
 
     # check if the spider is in front
     if spider is not None:
@@ -351,17 +352,21 @@ def relative_beliefs(env_state: dict) -> list[str]:
         relpos = nal_rel_pos("spider", orient, avatar_loc, spider_loc)
         if relpos is not None:
             beliefs.append(relpos)
+            beliefs.append(nal_distance("spider", avatar_loc, spider_loc))
 
     # check if the goal is in front
     goal_loc = goal["Location"]
     relpos = nal_rel_pos("goal", orient, avatar_loc, goal_loc)
     if relpos is not None:
         beliefs.append(relpos)
+        beliefs.append(nal_distance("goal", avatar_loc, goal_loc))
 
     return beliefs
 
 
-def nal_rel_pos(obname, orient, avatar_loc, obloc) -> Optional[str]:
+def nal_rel_pos(
+    obname: str, orient: str, avatar_loc: tuple[int, int], obloc: tuple[int, int]
+) -> Optional[str]:
     """Produce NARS statement about relative position of an object w.r.t. avatar
 
     The object is required to be in front of the avatar.
@@ -401,6 +406,19 @@ def nal_rel_pos(obname, orient, avatar_loc, obloc) -> Optional[str]:
                     return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
 
     return None
+
+
+def nal_distance(
+    obname: str, avatar_loc: tuple[int, int], obloc: tuple[int, int]
+) -> str:
+    """Produce NARS statement about distance of an object w.r.t. avatar
+
+    Represents distance as 'far' / 'near', depending on the manhattan distance.
+    """
+
+    return nal_now(
+        f"<{ext(obname)} --> [{'far' if manhattan_distance(avatar_loc, obloc) > 2 else 'near'}]>"
+    )
 
 
 class ZeldaAgent(Agent):
