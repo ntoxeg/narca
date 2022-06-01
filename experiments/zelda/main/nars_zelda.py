@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 
 from narca.nar import *
 from narca.utils import *
-from narca.zelda import ZeldaAgent
+from narca.zelda import Runner, ZeldaAgent
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
@@ -115,45 +115,12 @@ if __name__ == "__main__":
         think_ticks=10,
         background_knowledge=background_knowledge,
     )
-    total_reward = 0.0
-    episode_reward = 0.0
-    tb_writer = SummaryWriter(comment="-nars-zelda")
-    done = False
-    # TRAINING LOOP
-    for episode in range(NUM_EPISODES):
-        agent.reset()
+    runner = Runner(agent, goals)
 
-        for i in range(MAX_ITERATIONS):
-            agent.observe(complete=i % 10 == 0)
-
-            obs, reward, cumr, done, info = agent.step()
-            episode_reward += cumr
-
-            env_state = agent.env.get_state()  # type: ignore
-            env_state["reward"] = reward
-
-            satisfied_goals = [g.satisfied(env_state, info) for g in goals]
-            for g, sat in zip(goals, satisfied_goals):
-                if sat:
-                    print(f"{g.symbol} satisfied.")
-                    send_input(agent.process, nal_now(g.symbol))
-                    get_raw_output(agent.process)
-
-                    if g.symbol == key_goal_sym:
-                        agent.has_key = True
-
-            env.render(observer="global")  # type: ignore # Renders the entire environment
-            # sleep(1)
-
-            if done:
-                break
-
-        print(f"Episode {episode+1} finished with reward {episode_reward}.")
-        total_reward += episode_reward
-        tb_writer.add_scalar("train/episode_reward", episode_reward, episode)
-        tb_writer.add_scalar("train/total_reward", total_reward, episode)
-        episode_reward = 0.0
-        send_input(agent.process, nal_now("RESET"))
-
-    print(f"Average total reward per episode: {total_reward / NUM_EPISODES}.")
-    env.close()  # Call explicitly to avoid exception on quit
+    # Run the agent
+    runner.run(
+        NUM_EPISODES,
+        MAX_ITERATIONS,
+        log_tb=True,
+        comment_suffix="-main",
+    )
