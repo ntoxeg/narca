@@ -5,7 +5,6 @@ from functools import partial
 import griddly  # noqa
 import gym
 import neptune.new as neptune
-import pexpect
 from griddly import gd
 from icecream import ic
 
@@ -20,6 +19,8 @@ logger = logging.getLogger("nars")
 NUM_EPISODES = 50
 MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Zelda-v0"
+MAIN_TAG = "main"
+
 THINK_TICKS = 10
 
 
@@ -48,21 +49,6 @@ def got_rewarded(env_state: dict, _) -> bool:
     return env_state["reward"] > 0
 
 
-def make_goal(process: pexpect.spawn, env_state: dict, goal_symbol: str) -> None:
-    """Make an explicit goal using the position of an object"""
-    goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
-    goal_loc = loc(goal["Location"])
-    goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
-    send_input(process, goal_achievement)
-
-
-def make_loc_goal(process: pexpect.spawn, pos, goal_symbol):
-    """Make a goal for a location"""
-    goal_loc = loc(pos)
-    goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
-    send_input(process, goal_achievement)
-
-
 def key_check(_, info) -> bool:
     history = info["History"]
     if len(history) == 0:
@@ -76,7 +62,9 @@ def key_check(_, info) -> bool:
 
 if __name__ == "__main__":
     try:
-        neprun = neptune.init(project=os.environ["NEPTUNE_PROJECT"])
+        neprun = neptune.init(
+            project=os.environ["NEPTUNE_PROJECT"], tags=[ENV_NAME, MAIN_TAG]
+        )
     except KeyError:
         neprun = None
 
@@ -142,7 +130,7 @@ if __name__ == "__main__":
         NUM_EPISODES,
         MAX_ITERATIONS,
         log_tb=True,
-        comment_suffix="-main",
+        tb_comment_suffix=f"-{MAIN_TAG}",
         callbacks=callbacks,
     )
     if neprun is not None:

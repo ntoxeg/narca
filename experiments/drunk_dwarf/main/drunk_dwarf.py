@@ -1,36 +1,36 @@
-import json
 import logging
+import os
 from functools import partial
 
 import griddly  # noqa
 import gym
-import pexpect
+import neptune.new as neptune
 from griddly import gd
 from icecream import ic
-from tensorboardX import SummaryWriter
 
+from narca.drunk_dwarf import DrunkDwarfAgent, Runner
 from narca.nar import *
-from narca.utils import *
-from narca.zelda import Runner, ZeldaAgent, ZeldaLevelGenerator
+
+# from narca.utils import *
 
 # setup a logger for nars output
-logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
+logging.basicConfig(filename="nars_drunk_dwarf.log", filemode="w", level=logging.DEBUG)
 logger = logging.getLogger("nars")
 
 NUM_EPISODES = 50
 MAX_ITERATIONS = 100
-ENV_NAME = "GDY-Zelda-v0"
-DIFFICULTY_LEVEL = 2  # difficulty level 1 is too small for demonstrations
-NUM_DEMOS = 5
+ENV_NAME = "GDY-Drunk-Dwarf-v0"
+MAIN_TAG = "main"
 
-with open("difficulty_settings.json") as f:
-    difficulty_settings = json.load(f)
-LEVELGEN_CONFIG = difficulty_settings[ENV_NAME][str(DIFFICULTY_LEVEL)] | {
-    "max_goals": 1,
-    "p_key": 1.0,
-    "max_spiders": 1,
-    "p_spider": 1.0,
-}
+THINK_TICKS = 5
+
+
+def last_avatar_event(history: list[dict]) -> Optional[dict]:
+    """Return the last avatar event in the history"""
+    for event in reversed(history):
+        if event["SourceObjectName"] == "drunk_dwarf":
+            return event
+    return None
 
 
 def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
@@ -58,36 +58,27 @@ def got_rewarded(env_state: dict, _) -> bool:
     return env_state["reward"] > 0
 
 
-def make_goal(process: pexpect.spawn, env_state: dict, goal_symbol: str) -> None:
-    """Make an explicit goal using the position of an object"""
-    goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
-    goal_loc = loc(goal["Location"])
-    goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
-    send_input(process, goal_achievement)
-
-
-def make_loc_goal(process: pexpect.spawn, pos, goal_symbol):
-    """Make a goal for a location"""
-    goal_loc = loc(pos)
-    goal_achievement = f"<<({ext('SELF')} * {goal_loc}) --> at> =/> {goal_symbol}>."
-    send_input(process, goal_achievement)
-
-
 def key_check(_, info) -> bool:
     history = info["History"]
     if len(history) == 0:
         return False
     last_event = history[-1]
     return (
-        last_event["SourceObjectName"] == "avatar"
+        last_event["SourceObjectName"] == "drunk_dwarf"
         and last_event["DestinationObjectName"] == "key"
     )
 
 
 if __name__ == "__main__":
+    try:
+        neprun = neptune.init(
+            project=os.environ["NEPTUNE_PROJECT"], tags=[ENV_NAME, MAIN_TAG]
+        )
+    except KeyError:
+        neprun = None
+
     env = gym.make(ENV_NAME, player_observer_type=gd.ObserverType.VECTOR)
     env.enable_history(True)  # type: ignore
-    levelgen = ZeldaLevelGenerator(LEVELGEN_CONFIG)
 
     reach_object_knowledge = [
         f"<(<($obj * #location) --> at> &/ <({ext('SELF')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
@@ -101,16 +92,24 @@ if __name__ == "__main__":
 
     key_goal_sym = "GOT_KEY"
     reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
-    door_goal_sym = "AT_DOOR"
-    reach_door = [f"<<{ext('goal')} --> [reached]> =/> {door_goal_sym}>."]
+    door_goal_sym = "DOOR_OPENED"
+    open_door = [
+        f"<({key_goal_sym} &/ <{ext('door')} --> [reached]>) =/> {door_goal_sym}>."
+    ]
     complete_goal_sym = "COMPLETE"
-    complete_goal = [f"<({key_goal_sym} &/ {door_goal_sym}) =/> {complete_goal_sym}>."]
+    complete_goal = [
+        f"<({door_goal_sym} &/ <{ext('coffin_bed')} --> [reached]>) =/> {complete_goal_sym}>."
+    ]
 
     KEY_GOAL = Goal(key_goal_sym, partial(object_reached, "key"), reach_key)
-    DOOR_GOAL = Goal(door_goal_sym, partial(object_reached, "goal"), reach_door)
+    DOOR_GOAL = Goal(
+        door_goal_sym,
+        lambda evst, info: agent.has_key and object_reached("door", evst, info),
+        open_door,
+    )
     COMPLETE_GOAL = Goal(
         complete_goal_sym,
-        lambda evst, info: agent.has_key and DOOR_GOAL.satisfied(evst, info),
+        partial(object_reached, "coffin_bed"),
         complete_goal,
     )
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
@@ -122,31 +121,34 @@ if __name__ == "__main__":
         REWARD_GOAL,
     ]
 
-    agent = ZeldaAgent(
+    agent = DrunkDwarfAgent(
         env,
         COMPLETE_GOAL,
-        think_ticks=10,
+        think_ticks=THINK_TICKS,
         background_knowledge=background_knowledge,
     )
-    runner = Runner(agent, goals, levelgen)
+    runner = Runner(agent, goals)
 
-    # DEMONSTRATE
-    for _ in range(NUM_DEMOS):
-        plan = [
-            "^rotate_left",
-            "^move_forwards",
-            "^move_forwards",
-            "^rotate_right",
-            "^move_forwards",
-            "^move_forwards",
-        ]
-        print("Demonstration: completing a level...")
-        runner.demo_goal(plan)
+    callbacks = []
+    if neprun is not None:
+        neprun["parameters"] = {
+            "goals": [g.symbol for g in goals],
+            "think_ticks": THINK_TICKS,
+        }
+
+        def nep_callback(run_info: dict):
+            neprun["train/episode_reward"].log(run_info["episode_reward"])
+            neprun["train/total_reward"].log(run_info["total_reward"])
+
+        callbacks.append(nep_callback)
 
     # Run the agent
     runner.run(
         NUM_EPISODES,
         MAX_ITERATIONS,
         log_tb=True,
-        tb_comment_suffix="-demonstrate",
+        tb_comment_suffix=f"-{MAIN_TAG}",
+        callbacks=callbacks,
     )
+    if neprun is not None:
+        neprun.stop()

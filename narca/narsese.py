@@ -105,3 +105,6 @@ class Goal:
     symbol: str
     satisfied: Callable
     knowledge: Optional[list[str]] = None
+
+    def __repr__(self) -> str:
+        return f"Goal {self.symbol}; {self.knowledge}"

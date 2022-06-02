@@ -16,9 +16,6 @@ NARS_OPERATIONS = {
     "^rotate_left": 1,
     "^move_forwards": 2,
     "^rotate_right": 3,
-    "^move_backwards": 4,
-    "^attack": 5,
-    # "^goto": 6,
 }
 
 
@@ -270,7 +267,9 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
     ]
 
     try:
-        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
+        avatar = next(
+            obj for obj in env_state["Objects"] if obj["Name"] == "drunk_dwarf"
+        )
         avatar_loc = f"<({ext('SELF')} * {loc(avatar['Location'])}) --> at>. :|:"
         avatar_orient = (
             f"<{ext('SELF')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
@@ -318,15 +317,17 @@ def relative_beliefs(env_state: dict) -> list[str]:
     except StopIteration:
         key = None
     try:
-        spider = next(obj for obj in env_state["Objects"] if obj["Name"] == "spider")
+        door = next(obj for obj in env_state["Objects"] if obj["Name"] == "door")
     except StopIteration:
-        spider = None
+        door = None
     try:
-        goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
+        goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "coffin_bed")
     except StopIteration:
         return []
     try:
-        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
+        avatar = next(
+            obj for obj in env_state["Objects"] if obj["Name"] == "drunk_dwarf"
+        )
     except StopIteration:
         return []
 
@@ -346,20 +347,20 @@ def relative_beliefs(env_state: dict) -> list[str]:
             beliefs.append(relpos)
             beliefs.append(nal_distance("key", avatar_loc, key_loc))
 
-    # check if the spider is in front
-    if spider is not None:
-        spider_loc = spider["Location"]
-        relpos = nal_rel_pos("spider", orient, avatar_loc, spider_loc)
+    # check if the door is in front
+    if door is not None:
+        door_loc = door["Location"]
+        relpos = nal_rel_pos("door", orient, avatar_loc, door_loc)
         if relpos is not None:
             beliefs.append(relpos)
-            beliefs.append(nal_distance("spider", avatar_loc, spider_loc))
+            beliefs.append(nal_distance("door", avatar_loc, door_loc))
 
-    # check if the goal is in front
+    # check if the coffin_bed is in front
     goal_loc = goal["Location"]
-    relpos = nal_rel_pos("goal", orient, avatar_loc, goal_loc)
+    relpos = nal_rel_pos("coffin_bed", orient, avatar_loc, goal_loc)
     if relpos is not None:
         beliefs.append(relpos)
-        beliefs.append(nal_distance("goal", avatar_loc, goal_loc))
+        beliefs.append(nal_distance("coffin_bed", avatar_loc, goal_loc))
 
     return beliefs
 
@@ -421,8 +422,8 @@ def nal_distance(
     )
 
 
-class ZeldaAgent(Agent):
-    """Agent for Zelda"""
+class DrunkDwarfAgent(Agent):
+    """Agent for Drunk Dwarf"""
 
     def __init__(
         self,
@@ -506,7 +507,6 @@ class ZeldaAgent(Agent):
             "^rotate_left": 1,
             "^move_forwards": 2,
             "^rotate_right": 3,
-            "^move_backwards": 4,
         }
 
         if len(nars_output["executions"]) < 1:
@@ -559,7 +559,7 @@ class ZeldaAgent(Agent):
         send_observation(self.process, env_state, complete)
 
 
-def demo_reach_key(symbol: str, agent: ZeldaAgent) -> None:
+def demo_reach_key(symbol: str, agent: DrunkDwarfAgent) -> None:
     """Demonstrate reaching the key"""
     reach_key = [f"<({ext('key')} --> [reached]) =/> {symbol}>."]
     goals = [Goal(symbol, partial(object_reached, agent, "key"), reach_key)]
@@ -597,7 +597,7 @@ class Runner:
 
     def __init__(
         self,
-        agent: ZeldaAgent,
+        agent: DrunkDwarfAgent,
         goals: list[Goal],
         levelgen: Optional[ZeldaLevelGenerator] = None,
     ):
@@ -617,7 +617,9 @@ class Runner:
         run_info = dict(total_reward=0.0, episode_reward=0.0)
         done = False
         tb_writer = (
-            SummaryWriter(comment=f"-nars-zelda{tb_comment_suffix}") if log_tb else None
+            SummaryWriter(comment=f"-drunk_dwarf{tb_comment_suffix}")
+            if log_tb
+            else None
         )
 
         for episode in range(num_episodes):

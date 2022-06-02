@@ -134,5 +134,5 @@ if __name__ == "__main__":
         NUM_EPISODES,
         MAX_ITERATIONS,
         log_tb=True,
-        comment_suffix="-procgen",
+        tb_comment_suffix="-procgen",
     )
