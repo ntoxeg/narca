@@ -71,3 +71,6 @@ checklink/cookies.txt
 
 # TensorBoard events
 runs/
+
+# Neptune.ai
+.neptune/

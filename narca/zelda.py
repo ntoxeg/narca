@@ -611,10 +611,10 @@ class Runner:
         max_iterations: int,
         log_tb: bool = False,
         comment_suffix: str = "",
+        callbacks: list[Callable] = [],
     ) -> None:
         """Run agent interaction episodes"""
-        total_reward = 0.0
-        episode_reward = 0.0
+        run_info = dict(total_reward=0.0, episode_reward=0.0)
         done = False
         tb_writer = (
             SummaryWriter(comment=f"-nars-zelda{comment_suffix}") if log_tb else None
@@ -628,7 +628,7 @@ class Runner:
                 self.agent.observe(complete=i % 10 == 0)
 
                 _, reward, cumr, done, info = self.agent.step()
-                episode_reward += cumr
+                run_info["episode_reward"] += cumr
 
                 env_state = self.agent.env.get_state()  # type: ignore
                 env_state["reward"] = reward
@@ -648,15 +648,29 @@ class Runner:
                 if done:
                     break
 
-            print(f"Episode {episode+1} finished with reward {episode_reward}.")
-            total_reward += episode_reward
+            print(
+                f"Episode {episode+1} finished with reward {run_info['episode_reward']}."
+            )
+            run_info["total_reward"] += run_info["episode_reward"]
+
+            # Performance logging subroutines
+            for callback in callbacks:
+                callback(run_info)
             if tb_writer is not None:
-                tb_writer.add_scalar("train/episode_reward", episode_reward, episode)
-                tb_writer.add_scalar("train/total_reward", total_reward, episode)
-            episode_reward = 0.0
+                tb_writer.add_scalar(
+                    "train/episode_reward", run_info["episode_reward"], episode
+                )
+                tb_writer.add_scalar(
+                    "train/total_reward", run_info["total_reward"], episode
+                )
+
+            # Post-episode wrap up
+            run_info["episode_reward"] = 0.0
             send_input(self.agent.process, nal_now("RESET"))
 
-        print(f"Average total reward per episode: {total_reward / num_episodes}.")
+        print(
+            f"Average total reward per episode: {run_info['total_reward'] / num_episodes}."
+        )
         self.agent.env.close()  # Call explicitly to avoid exception on quit
 
     def demo_goal(self, plan: list[str]) -> None:

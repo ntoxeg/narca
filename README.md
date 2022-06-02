@@ -11,5 +11,6 @@ Dependencies are listed in the `env.yml` file, that can be used to create a Cond
 Current caveat: Griddly has to be installed from source for Python 3.10. You have to do this manually.
 
 ## Running
-Currently, there is only one experiment, `nars_zelda.py`, that you can simply run. You can observe the rendered environment
-and run TensorBoard to see rewards per episode.
+There are multiple experiments under the `experiments` directory. Each one can be launched with `python <path to the script>`. You can observe the rendered environment
+and run TensorBoard to see performance metrics. TensorBoard run data gets saved to `runs`.
+There is also Neptune.ai integration that you can use, you need to set `NEPTUNE_PROJECT` and `NEPTUNE_API_TOKEN`.

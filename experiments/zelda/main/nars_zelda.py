@@ -1,12 +1,13 @@
 import logging
+import os
 from functools import partial
 
 import griddly  # noqa
 import gym
+import neptune.new as neptune
 import pexpect
 from griddly import gd
 from icecream import ic
-from tensorboardX import SummaryWriter
 
 from narca.nar import *
 from narca.utils import *
@@ -19,6 +20,7 @@ logger = logging.getLogger("nars")
 NUM_EPISODES = 50
 MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Zelda-v0"
+THINK_TICKS = 10
 
 
 def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
@@ -73,6 +75,11 @@ def key_check(_, info) -> bool:
 
 
 if __name__ == "__main__":
+    try:
+        neprun = neptune.init(project=os.environ["NEPTUNE_PROJECT"])
+    except KeyError:
+        neprun = None
+
     env = gym.make(ENV_NAME, player_observer_type=gd.ObserverType.VECTOR)
     env.enable_history(True)  # type: ignore
 
@@ -112,10 +119,23 @@ if __name__ == "__main__":
     agent = ZeldaAgent(
         env,
         COMPLETE_GOAL,
-        think_ticks=10,
+        think_ticks=THINK_TICKS,
         background_knowledge=background_knowledge,
     )
     runner = Runner(agent, goals)
+
+    callbacks = []
+    if neprun is not None:
+        neprun["parameters"] = {
+            "goals": [g.symbol for g in goals],
+            "think_ticks": THINK_TICKS,
+        }
+
+        def nep_callback(run_info: dict):
+            neprun["train/episode_reward"].log(run_info["episode_reward"])
+            neprun["train/total_reward"].log(run_info["total_reward"])
+
+        callbacks.append(nep_callback)
 
     # Run the agent
     runner.run(
@@ -123,4 +143,7 @@ if __name__ == "__main__":
         MAX_ITERATIONS,
         log_tb=True,
         comment_suffix="-main",
+        callbacks=callbacks,
     )
+    if neprun is not None:
+        neprun.stop()
