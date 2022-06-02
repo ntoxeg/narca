@@ -6,7 +6,9 @@ You need to have OpenNARS-For-Applications installed somewhere. It is expected t
 variable to specify where it is built.
 
 Dependencies are listed in the `env.yml` file, that can be used to create a Conda environment.
-`lock.yml` is a lock-file that you can use to make a reproducible environment, Conda might fail to create it though.
+`lock.yml` is a lock-file that you can use to make a reproducible environment, Conda might fail to create it though. For standard virtual environments you just need to use `pip`.
+
+Install in editable mode to your environment: `pip install -e .`
 
 Current caveat: Griddly has to be installed from source for Python 3.10. You have to do this manually.
 
@@ -14,3 +16,5 @@ Current caveat: Griddly has to be installed from source for Python 3.10. You hav
 There are multiple experiments under the `experiments` directory. Each one can be launched with `python <path to the script>`. You can observe the rendered environment
 and run TensorBoard to see performance metrics. TensorBoard run data gets saved to `runs`.
 There is also Neptune.ai integration that you can use, you need to set `NEPTUNE_PROJECT` and `NEPTUNE_API_TOKEN`.
+
+Each Griddly environment has its own subdirectory, each has at least the `main` experiment - this is supposed to hold the currently established simplest best performing agent.
