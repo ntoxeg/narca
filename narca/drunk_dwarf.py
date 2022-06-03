@@ -258,7 +258,7 @@ class ZeldaLevelGenerator(LevelGenerator):
 def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
     """Produce NARS statements from environment semantic state"""
     # TODO: handle the case where every type of an object can be a multiple
-    special_types = ["wall", "avatar"]
+    special_types = ["wall", "drunk_dwarf"]
 
     walls = [
         (i, obj["Location"])
@@ -434,7 +434,6 @@ class DrunkDwarfAgent(Agent):
     ):
         super().__init__(env)
         self.goal = goal
-        self.has_key = False
         self.think_ticks = think_ticks
         self.background_knowledge = background_knowledge
 
@@ -473,12 +472,19 @@ class DrunkDwarfAgent(Agent):
             for belief in self.goal.knowledge:
                 send_input(self.process, belief)
 
+        # init agent's state
+        self.has_key = False
+        self.object_info = {"current": {}, "previous": {}}
+
     def reset(self, level_string: Optional[str] = None):
         if level_string is None:
             self.env.reset()
         else:
             self.env.reset(level_string=level_string)
+
+        # reset agent's state
         self.has_key = False
+        self.object_info = {"current": {}, "previous": {}}
 
     def plan(self) -> list[list[int]]:
         # determine the action to take from NARS
@@ -519,7 +525,7 @@ class DrunkDwarfAgent(Agent):
             args = exe["arguments"]
             if op == "^goto":
                 avatar = next(
-                    obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
+                    obj for obj in env_state["Objects"] if obj["Name"] == "drunk_dwarf"
                 )
 
                 if len(args) < 2:
@@ -556,6 +562,35 @@ class DrunkDwarfAgent(Agent):
 
     def observe(self, complete=False):
         env_state = self.env.get_state()
+
+        self.object_info["previous"] = self.object_info["current"]
+        self.object_info["current"] = {
+            obj["Name"]: obj["Location"] for obj in env_state["Objects"]
+        }  # FIXME: narrow down to only objects in view
+
+        avatar_loc = self.object_info["current"].pop("drunk_dwarf")
+
+        # send info about what got closer and what further away
+        for obj_name, obj_loc in self.object_info["previous"].items():
+            if obj_name in self.object_info["current"]:
+                new_obj_loc = self.object_info["current"][obj_name]
+                if manhattan_distance(avatar_loc, new_obj_loc) < manhattan_distance(
+                    avatar_loc, obj_loc
+                ):
+                    send_input(self.process, nal_now(f"<{ext(obj_name)} --> [closer]>"))
+                elif manhattan_distance(avatar_loc, new_obj_loc) > manhattan_distance(
+                    avatar_loc, obj_loc
+                ):
+                    send_input(
+                        self.process, nal_now(f"<{ext(obj_name)} --> [further]>")
+                    )
+            else:
+                send_input(self.process, nal_now(f"<{ext(obj_name)} --> [gone]>"))
+
+        for obj_name, obj_loc in self.object_info["current"].items():
+            if obj_name not in self.object_info["previous"]:
+                send_input(self.process, nal_now(f"<{ext(obj_name)} --> [new]>"))
+
         send_observation(self.process, env_state, complete)
 
 

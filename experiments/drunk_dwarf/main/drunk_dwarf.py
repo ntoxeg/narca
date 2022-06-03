@@ -22,7 +22,7 @@ MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Drunk-Dwarf-v0"
 MAIN_TAG = "main"
 
-THINK_TICKS = 5
+THINK_TICKS = 10
 
 
 def last_avatar_event(history: list[dict]) -> Optional[dict]:
