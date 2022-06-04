@@ -376,35 +376,55 @@ def nal_rel_pos(
         case "UP":
             if obloc[1] < avatar_loc[1]:
                 if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
+                    return nal_now(f"<{ext(obname)} --> [ahead]>")
                 if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
+                    return nal_now(f"<{ext(obname)} --> [leftward]>")
                 if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
+                    return nal_now(f"<{ext(obname)} --> [rightward]>")
+            if obloc[1] == avatar_loc[1]:
+                if obloc[0] < avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [leftward]>")
+                if obloc[0] > avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [rightward]>")
         case "RIGHT":
             if obloc[0] > avatar_loc[0]:
                 if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
+                    return nal_now(f"<{ext(obname)} --> [ahead]>")
                 if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
+                    return nal_now(f"<{ext(obname)} --> [leftward]>")
                 if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
+                    return nal_now(f"<{ext(obname)} --> [rightward]>")
+            if obloc[0] == avatar_loc[0]:
+                if obloc[1] < avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [leftward]>")
+                if obloc[1] > avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [rightward]>")
         case "DOWN":
             if obloc[1] > avatar_loc[1]:
                 if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
+                    return nal_now(f"<{ext(obname)} --> [ahead]>")
                 if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
+                    return nal_now(f"<{ext(obname)} --> [rightward]>")
                 if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
+                    return nal_now(f"<{ext(obname)} --> [leftward]>")
+            if obloc[1] == avatar_loc[1]:
+                if obloc[0] < avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [rightward]>")
+                if obloc[0] > avatar_loc[0]:
+                    return nal_now(f"<{ext(obname)} --> [leftward]>")
         case "LEFT":
             if obloc[0] < avatar_loc[0]:
                 if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
+                    return nal_now(f"<{ext(obname)} --> [ahead]>")
                 if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
+                    return nal_now(f"<{ext(obname)} --> [rightward]>")
                 if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
+                    return nal_now(f"<{ext(obname)} --> [leftward]>")
+            if obloc[0] == avatar_loc[0]:
+                if obloc[1] < avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [rightward]>")
+                if obloc[1] > avatar_loc[1]:
+                    return nal_now(f"<{ext(obname)} --> [leftward]>")
 
     return None
 
@@ -592,6 +612,7 @@ class DrunkDwarfAgent(Agent):
                 send_input(self.process, nal_now(f"<{ext(obj_name)} --> [new]>"))
 
         send_observation(self.process, env_state, complete)
+        send_input(self.process, "3")
 
 
 def demo_reach_key(symbol: str, agent: DrunkDwarfAgent) -> None:
@@ -640,6 +661,11 @@ class Runner:
         self.goals = goals
         self.levelgen = levelgen
 
+        for g in self.goals:
+            if g.symbol != self.agent.goal.symbol and g.knowledge is not None:
+                for statement in g.knowledge:
+                    send_input(self.agent.process, statement)
+
     def run(
         self,
         num_episodes: int,
@@ -662,7 +688,7 @@ class Runner:
             self.agent.reset(level_string=lvl_str)
 
             for i in range(max_iterations):
-                self.agent.observe(complete=i % 10 == 0)
+                self.agent.observe(complete=i % 1 == 0)
 
                 _, reward, cumr, done, info = self.agent.step()
                 run_info["episode_reward"] += cumr
@@ -704,6 +730,7 @@ class Runner:
             # Post-episode wrap up
             run_info["episode_reward"] = 0.0
             send_input(self.agent.process, nal_now("RESET"))
+            send_input(self.agent.process, "100")
 
         print(
             f"Average total reward per episode: {run_info['total_reward'] / num_episodes}."

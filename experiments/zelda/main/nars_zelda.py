@@ -76,30 +76,32 @@ if __name__ == "__main__":
     ]
     rel_pos_knowledge = [
         f"<(<$obj --> [ahead]> &/ ^move_forwards) =/> <$obj --> [reached]>>.",
-        f"<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
-        f"<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
+        # f"<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
+        # f"<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
     ]
     background_knowledge = rel_pos_knowledge
 
     key_goal_sym = "GOT_KEY"
     reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
-    door_goal_sym = "AT_DOOR"
-    reach_door = [f"<<{ext('goal')} --> [reached]> =/> {door_goal_sym}>."]
+    # door_goal_sym = "AT_DOOR"
+    # reach_door = [f"<<{ext('goal')} --> [reached]> =/> {door_goal_sym}>."]
     complete_goal_sym = "COMPLETE"
-    complete_goal = [f"<({key_goal_sym} &/ {door_goal_sym}) =/> {complete_goal_sym}>."]
+    complete_goal = [
+        f"<({key_goal_sym} &/ <{ext('goal')} --> [reached]>) =/> {complete_goal_sym}>."
+    ]
 
     KEY_GOAL = Goal(key_goal_sym, partial(object_reached, "key"), reach_key)
-    DOOR_GOAL = Goal(door_goal_sym, partial(object_reached, "goal"), reach_door)
+    # DOOR_GOAL = Goal(door_goal_sym, partial(object_reached, "goal"), reach_door)
     COMPLETE_GOAL = Goal(
         complete_goal_sym,
-        lambda evst, info: agent.has_key and DOOR_GOAL.satisfied(evst, info),
+        lambda evst, info: agent.has_key and object_reached("goal", evst, info),
         complete_goal,
     )
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
 
     goals = [
         KEY_GOAL,
-        DOOR_GOAL,
+        # DOOR_GOAL,
         COMPLETE_GOAL,
         REWARD_GOAL,
     ]

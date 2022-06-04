@@ -557,6 +557,7 @@ class ZeldaAgent(Agent):
     def observe(self, complete=False):
         env_state = self.env.get_state()
         send_observation(self.process, env_state, complete)
+        send_input(self.process, "3")
 
 
 def demo_reach_key(symbol: str, agent: ZeldaAgent) -> None:
@@ -604,6 +605,11 @@ class Runner:
         self.agent = agent
         self.goals = goals
         self.levelgen = levelgen
+
+        for g in self.goals:
+            if g.symbol != self.agent.goal.symbol and g.knowledge is not None:
+                for statement in g.knowledge:
+                    send_input(self.agent.process, statement)
 
     def run(
         self,
@@ -667,6 +673,7 @@ class Runner:
             # Post-episode wrap up
             run_info["episode_reward"] = 0.0
             send_input(self.agent.process, nal_now("RESET"))
+            send_input(self.agent.process, "100")
 
         print(
             f"Average total reward per episode: {run_info['total_reward'] / num_episodes}."
