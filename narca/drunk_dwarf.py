@@ -312,8 +312,8 @@ def send_observation(
 
 def relative_beliefs(env_state: dict) -> list[str]:
     """Produce NARS statements about relative positions of objects"""
-    beliefs = []
-    # we need to process the key, the spider and the goal (door)
+    beliefs: list[str] = []
+    # we need to process the key, the door and the goal (coffin bed)
     try:
         key = next(obj for obj in env_state["Objects"] if obj["Name"] == "key")
     except StopIteration:
@@ -334,12 +334,12 @@ def relative_beliefs(env_state: dict) -> list[str]:
         return []
 
     # we need to know the orientation of the avatar
-    orient = avatar["Orientation"]
+    orient: str = avatar["Orientation"]
     if orient == "NONE":
         return []
 
     # we need to know the location of the avatar
-    avatar_loc = avatar["Location"]
+    avatar_loc: tuple[int, int] = avatar["Location"]
 
     # check if the key in in 180 degree arc in front
     if key is not None:
@@ -347,7 +347,7 @@ def relative_beliefs(env_state: dict) -> list[str]:
         relpos = nal_rel_pos("key", orient, avatar_loc, key_loc)
         if relpos is not None:
             beliefs.append(relpos)
-            beliefs.append(nal_distance("key", avatar_loc, key_loc))
+            beliefs.extend(nal_distance("key", (avatar_loc, orient), key_loc))
 
     # check if the door is in front
     if door is not None:
@@ -355,14 +355,26 @@ def relative_beliefs(env_state: dict) -> list[str]:
         relpos = nal_rel_pos("door", orient, avatar_loc, door_loc)
         if relpos is not None:
             beliefs.append(relpos)
-            beliefs.append(nal_distance("door", avatar_loc, door_loc))
+            beliefs.extend(nal_distance("door", (avatar_loc, orient), door_loc))
 
     # check if the coffin_bed is in front
     goal_loc = goal["Location"]
     relpos = nal_rel_pos("coffin_bed", orient, avatar_loc, goal_loc)
     if relpos is not None:
         beliefs.append(relpos)
-        beliefs.append(nal_distance("coffin_bed", avatar_loc, goal_loc))
+        beliefs.extend(nal_distance("coffin_bed", (avatar_loc, orient), goal_loc))
+
+    # wall information
+    walls = [
+        (i, obj["Location"])
+        for i, obj in enumerate(env_state["Objects"])
+        if obj["Name"] == "wall"
+    ]
+    for i, pos in walls:
+        relpos = nal_rel_pos("wall" + str(i), orient, avatar_loc, pos)
+        if relpos is not None:
+            beliefs.append(relpos)
+            beliefs.extend(nal_distance("wall" + str(i), (avatar_loc, orient), pos))
 
     return beliefs
 
@@ -432,16 +444,48 @@ def nal_rel_pos(
 
 
 def nal_distance(
-    obname: str, avatar_loc: tuple[int, int], obloc: tuple[int, int]
-) -> str:
+    obname: str, avatar_info: tuple[tuple[int, int], str], obloc: tuple[int, int]
+) -> list[str]:
     """Produce NARS statement about distance of an object w.r.t. avatar
 
     Represents distance as 'far' / 'near', depending on the manhattan distance.
     """
 
-    return nal_now(
-        f"<{ext(obname)} --> [{'far' if manhattan_distance(avatar_loc, obloc) > 2 else 'near'}]>"
-    )
+    def ds_str(ds):
+        dss = str(abs(ds))
+        if ds > 0:  # left
+            return "L" + dss
+        if ds < 0:
+            return "R" + dss
+        return dss
+
+    avatar_loc, orient = avatar_info
+    if manhattan_distance(avatar_loc, obloc) > 4:
+        return [nal_now(f"<{ext(obname)} --> [far]>")]
+
+    df, dss = 0, "0"
+    match orient:
+        case "UP":
+            if obloc[1] < avatar_loc[1]:
+                df, ds = avatar_loc[1] - obloc[1], avatar_loc[0] - obloc[0]
+                dss = ds_str(ds)
+        case "RIGHT":
+            if obloc[0] > avatar_loc[0]:
+                df, ds = obloc[0] - avatar_loc[0], avatar_loc[1] - obloc[1]
+                dss = ds_str(ds)
+        case "DOWN":
+            if obloc[1] > avatar_loc[1]:
+                df, ds = obloc[1] - avatar_loc[1], obloc[0] - avatar_loc[0]
+                dss = ds_str(ds)
+        case "LEFT":
+            if obloc[0] < avatar_loc[0]:
+                df, ds = avatar_loc[0] - obloc[0], obloc[1] - avatar_loc[1]
+                dss = ds_str(ds)
+
+    return [
+        nal_now(f"<({ext(obname)} * {df}) --> [delta_forward]>"),
+        nal_now(f"<({ext(obname)} * {dss}) --> [delta_sideways]>"),
+    ]
 
 
 class DrunkDwarfAgent(Agent):
@@ -494,6 +538,8 @@ class DrunkDwarfAgent(Agent):
             for belief in self.goal.knowledge:
                 send_input(self.process, belief)
 
+        send_input(self.process, "3")
+
         # init agent's state
         self.has_key = False
         self.object_info = {"current": {}, "previous": {}}
@@ -507,6 +553,10 @@ class DrunkDwarfAgent(Agent):
         # reset agent's state
         self.has_key = False
         self.object_info = {"current": {}, "previous": {}}
+
+        # send reset info to NARS
+        send_input(self.process, nal_now("RESET"))
+        send_input(self.process, "100")
 
     def plan(self) -> list[list[int]]:
         # determine the action to take from NARS
@@ -731,8 +781,6 @@ class Runner:
 
             # Post-episode wrap up
             run_info["episode_reward"] = 0.0
-            send_input(self.agent.process, nal_now("RESET"))
-            send_input(self.agent.process, "100")
 
         print(
             f"Average total reward per episode: {run_info['total_reward'] / num_episodes}."
