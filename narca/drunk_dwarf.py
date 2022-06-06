@@ -290,7 +290,9 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
     return relative_beliefs(env_state)
 
 
-def send_observation(process: pexpect.spawn, env_state: dict, complete=False) -> None:
+def send_observation(
+    process: subprocess.Popen, env_state: dict, complete=False
+) -> None:
     """Send observation to NARS
 
     Args:
@@ -471,12 +473,12 @@ class DrunkDwarfAgent(Agent):
             (NARS_PATH / "NAR").as_posix(),
             "shell",
         ]
-        # process = subprocess.Popen(
-        #     process_cmd,
-        #     stdout=subprocess.PIPE,
-        #     universal_newlines=True,
-        # )
-        self.process: pexpect.spawn = pexpect.spawn(process_cmd[0], process_cmd[1:])
+        self.process: subprocess.Popen = subprocess.Popen(
+            process_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            universal_newlines=True,
+        )
         # sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
 
         # setup NARS

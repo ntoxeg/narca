@@ -291,7 +291,9 @@ def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
     return relative_beliefs(env_state)
 
 
-def send_observation(process: pexpect.spawn, env_state: dict, complete=False) -> None:
+def send_observation(
+    process: subprocess.Popen, env_state: dict, complete=False
+) -> None:
     """Send observation to NARS
 
     Args:
@@ -451,12 +453,12 @@ class ZeldaAgent(Agent):
             (NARS_PATH / "NAR").as_posix(),
             "shell",
         ]
-        # process = subprocess.Popen(
-        #     process_cmd,
-        #     stdout=subprocess.PIPE,
-        #     universal_newlines=True,
-        # )
-        self.process: pexpect.spawn = pexpect.spawn(process_cmd[0], process_cmd[1:])
+        self.process = subprocess.Popen(
+            process_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            universal_newlines=True,
+        )
         # sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
 
         # setup NARS
@@ -472,12 +474,18 @@ class ZeldaAgent(Agent):
             for belief in self.goal.knowledge:
                 send_input(self.process, belief)
 
+        send_input(self.process, "3")
+
     def reset(self, level_string: Optional[str] = None):
         if level_string is None:
             self.env.reset()
         else:
             self.env.reset(level_string=level_string)
         self.has_key = False
+
+        # send reset info to NARS
+        send_input(self.process, nal_now("RESET"))
+        send_input(self.process, "100")
 
     def plan(self) -> list[list[int]]:
         # determine the action to take from NARS
@@ -672,8 +680,6 @@ class Runner:
 
             # Post-episode wrap up
             run_info["episode_reward"] = 0.0
-            send_input(self.agent.process, nal_now("RESET"))
-            send_input(self.agent.process, "100")
 
         print(
             f"Average total reward per episode: {run_info['total_reward'] / num_episodes}."

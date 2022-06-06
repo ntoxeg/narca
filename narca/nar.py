@@ -1,7 +1,7 @@
 import logging
+import subprocess
 from typing import Any, Optional
 
-import pexpect
 from icecream import ic
 
 from .narsese import *
@@ -9,21 +9,35 @@ from .narsese import *
 logger = logging.getLogger(__name__)
 
 
-def send_input(process: pexpect.spawn, input_: str) -> None:
+def send_input(process: subprocess.Popen, input_: str) -> None:
     """Send input to NARS server"""
-    process.sendline(input_)
+    stdin, stdout = process.stdin, process.stdout
+    if stdin is None or stdout is None:
+        raise RuntimeError("Process has no stdin or stdout.")
+
+    stdin.write(input_ + "\n")
+    stdin.flush()
 
 
-def get_raw_output(process: pexpect.spawn) -> list[str]:
+def get_raw_output(process: subprocess.Popen) -> list[str]:
     """Get raw output from NARS server"""
-    process.sendline("0")
-    process.expect(["done with 0 additional inference steps.", pexpect.EOF])
-    output = [s.strip().decode("utf-8") for s in process.before.split(b"\n")][2:-3]  # type: ignore
-    logger.debug("\n".join(output))
-    return output
+    stdin, stdout = process.stdin, process.stdout
+    if stdin is None or stdout is None:
+        raise RuntimeError("Process has no stdin or stdout.")
+
+    stdin.write("0\n")
+    stdin.flush()
+    ret: str = ""
+    before: list[str] = []
+    while "done with 0 additional inference steps." != ret.strip():
+        if ret != "":
+            before.append(ret.strip())
+        ret = stdout.readline()
+    logger.debug("\n".join(before))
+    return before[:-1]
 
 
-def get_output(process: pexpect.spawn) -> dict[str, Any]:
+def get_output(process: subprocess.Popen) -> dict[str, Any]:
     lines = get_raw_output(process)
     executions = [parse_execution(l) for l in lines if l.startswith("^")]
     inputs = [
@@ -49,7 +63,7 @@ def get_output(process: pexpect.spawn) -> dict[str, Any]:
 
 
 def expect_output(
-    process: pexpect.spawn,
+    process: subprocess.Popen,
     targets: list[str],
     think_ticks: int = 5,
     patience: int = 3,
@@ -66,36 +80,36 @@ def expect_output(
         patience -= 1
 
         if goal_reentry is not None:
-            process.sendline(nal_demand(goal_reentry.symbol))
+            send_input(process, nal_demand(goal_reentry.symbol))
 
-        process.sendline(str(think_ticks))
+        send_input(process, str(think_ticks))
         output = get_output(process)
     # ic("Got a matching output.")
     return output
 
 
 def setup_nars_ops(
-    process: pexpect.spawn, ops: dict[str, int], babblingops: Optional[int] = None
+    process: subprocess.Popen, ops: dict[str, int], babblingops: Optional[int] = None
 ):
     """Setup NARS operations"""
     for op in ops:
-        process.sendline(f"*setopname {ops[op]} {op}")
+        send_input(process, f"*setopname {ops[op]} {op}")
     if babblingops is None:
-        process.sendline(f"*babblingops={len(ops)}")
+        send_input(process, f"*babblingops={len(ops)}")
     else:
-        process.sendline(f"*babblingops={babblingops}")
+        send_input(process, f"*babblingops={babblingops}")
 
 
 def setup_nars(
-    process: pexpect.spawn,
+    process: subprocess.Popen,
     ops: dict[str, int],
     motorbabbling: float = 0.05,
     babblingops: Optional[int] = None,
     volume: Optional[int] = None,
 ):
     """Send NARS settings"""
-    process.sendline("*reset")
+    send_input(process, "*reset")
     setup_nars_ops(process, ops, babblingops=babblingops)
-    process.sendline(f"*motorbabbling={motorbabbling}")
+    send_input(process, f"*motorbabbling={motorbabbling}")
     if volume is not None:
-        process.sendline(f"*volume={volume}")
+        send_input(process, f"*volume={volume}")
