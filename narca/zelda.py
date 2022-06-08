@@ -10,7 +10,7 @@ from tensorboardX import SummaryWriter
 from .agent import Agent
 from .astar import pathfind
 from .nar import *
-from .utils import NARS_PATH, manhattan_distance, object_reached
+from .utils import *
 
 NARS_OPERATIONS = {
     "^rotate_left": 1,
@@ -20,31 +20,6 @@ NARS_OPERATIONS = {
     "^attack": 5,
     # "^goto": 6,
 }
-
-
-def abs_to_rel(avatar, op):
-    orient_to_num = {
-        "UP": 0,
-        "RIGHT": 1,
-        "DOWN": 2,
-        "LEFT": 3,
-        "NONE": 0,  # HACK: assuming that NONE is the same as UP
-    }
-    if avatar["Orientation"] == "NONE":
-        ic("Warning: avatar orientation is NONE. Assuming UP.")
-    avatar_orient = orient_to_num[avatar["Orientation"]]
-    dor = 0
-    match op:
-        case "^up":
-            dor = 4 - avatar_orient if avatar_orient != 0 else 0
-        case "^right":
-            dor = 5 - avatar_orient if avatar_orient != 1 else 0
-        case "^down":
-            dor = 6 - avatar_orient if avatar_orient != 2 else 0
-        case "^left":
-            dor = 7 - avatar_orient if avatar_orient != 3 else 0
-
-    return ["^rotate_right"] * dor + ["^move_forwards"]
 
 
 class ZeldaLevelGenerator(LevelGenerator):
@@ -364,63 +339,6 @@ def relative_beliefs(env_state: dict) -> list[str]:
         beliefs.append(nal_distance("goal", avatar_loc, goal_loc))
 
     return beliefs
-
-
-def nal_rel_pos(
-    obname: str, orient: str, avatar_loc: tuple[int, int], obloc: tuple[int, int]
-) -> Optional[str]:
-    """Produce NARS statement about relative position of an object w.r.t. avatar
-
-    The object is required to be in front of the avatar.
-    """
-    match orient:
-        case "UP":
-            if obloc[1] < avatar_loc[1]:
-                if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
-                if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
-                if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
-        case "RIGHT":
-            if obloc[0] > avatar_loc[0]:
-                if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
-                if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
-                if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
-        case "DOWN":
-            if obloc[1] > avatar_loc[1]:
-                if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
-                if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
-                if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
-        case "LEFT":
-            if obloc[0] < avatar_loc[0]:
-                if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward ahead]>")
-                if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward rightward]>")
-                if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [frontward leftward]>")
-
-    return None
-
-
-def nal_distance(
-    obname: str, avatar_loc: tuple[int, int], obloc: tuple[int, int]
-) -> str:
-    """Produce NARS statement about distance of an object w.r.t. avatar
-
-    Represents distance as 'far' / 'near', depending on the manhattan distance.
-    """
-
-    return nal_now(
-        f"<{ext(obname)} --> [{'far' if manhattan_distance(avatar_loc, obloc) > 2 else 'near'}]>"
-    )
 
 
 class ZeldaAgent(Agent):

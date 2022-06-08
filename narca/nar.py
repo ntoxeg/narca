@@ -89,11 +89,11 @@ def expect_output(
 
 
 def setup_nars_ops(
-    process: subprocess.Popen, ops: dict[str, int], babblingops: Optional[int] = None
+    process: subprocess.Popen, ops: list[str], babblingops: Optional[int] = None
 ):
     """Setup NARS operations"""
-    for op in ops:
-        send_input(process, f"*setopname {ops[op]} {op}")
+    for i, op in enumerate(ops):
+        send_input(process, f"*setopname {i+1} {op}")
     if babblingops is None:
         send_input(process, f"*babblingops={len(ops)}")
     else:
@@ -102,7 +102,7 @@ def setup_nars_ops(
 
 def setup_nars(
     process: subprocess.Popen,
-    ops: dict[str, int],
+    ops: list[str],
     motorbabbling: float = 0.05,
     babblingops: Optional[int] = None,
     volume: Optional[int] = None,

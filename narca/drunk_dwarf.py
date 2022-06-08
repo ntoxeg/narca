@@ -7,35 +7,10 @@ import numpy as np
 from griddly.util.rllib.environment.level_generator import LevelGenerator
 from tensorboardX import SummaryWriter
 
-from .agent import Agent
+from .agent import NarsAgent
 from .astar import pathfind
 from .nar import *
-from .utils import NARS_PATH, manhattan_distance, object_reached
-
-
-def abs_to_rel(avatar, op):
-    orient_to_num = {
-        "UP": 0,
-        "RIGHT": 1,
-        "DOWN": 2,
-        "LEFT": 3,
-        "NONE": 0,  # HACK: assuming that NONE is the same as UP
-    }
-    if avatar["Orientation"] == "NONE":
-        ic("Warning: avatar orientation is NONE. Assuming UP.")
-    avatar_orient = orient_to_num[avatar["Orientation"]]
-    dor = 0
-    match op:
-        case "^up":
-            dor = 4 - avatar_orient if avatar_orient != 0 else 0
-        case "^right":
-            dor = 5 - avatar_orient if avatar_orient != 1 else 0
-        case "^down":
-            dor = 6 - avatar_orient if avatar_orient != 2 else 0
-        case "^left":
-            dor = 7 - avatar_orient if avatar_orient != 3 else 0
-
-    return ["^rotate_right"] * dor + ["^move_forwards"]
+from .utils import *
 
 
 class ZeldaLevelGenerator(LevelGenerator):
@@ -249,249 +224,16 @@ class ZeldaLevelGenerator(LevelGenerator):
         return self._level_string(map_)
 
 
-def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
-    """Produce NARS statements from environment semantic state"""
-    # TODO: handle the case where every type of an object can be a multiple
-    special_types = ["wall", "drunk_dwarf"]
-
-    walls = [
-        (i, obj["Location"])
-        for i, obj in enumerate(env_state["Objects"])
-        if obj["Name"] == "wall"
-    ]
-
-    try:
-        avatar = next(
-            obj for obj in env_state["Objects"] if obj["Name"] == "drunk_dwarf"
-        )
-        avatar_loc = f"<({ext('SELF')} * {loc(avatar['Location'])}) --> at>. :|:"
-        avatar_orient = (
-            f"<{ext('SELF')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
-        )
-    except StopIteration:
-        return []
-    avatar_beliefs = [avatar_loc, avatar_orient]
-
-    object_beliefs = [
-        f"<({ext(obj['Name'])} * {loc(obj['Location'])}) --> at>. :|:"
-        for obj in env_state["Objects"]
-        if obj["Name"] not in special_types
-    ]
-    wall_beliefs = [
-        f"<({ext('wall' + str(i))} * {loc(pos)}) --> at>. :|:" for i, pos in walls
-    ]
-
-    return relative_beliefs(env_state)
-
-
-def send_observation(
-    process: subprocess.Popen, env_state: dict, complete=False
-) -> None:
-    """Send observation to NARS
-
-    Args:
-        process: NARS process
-        env_state: environment state
-        complete: whether to send the complete observation (include wall beliefs)
-    """
-    # send the observation to NARS
-    # send_input(sock, narsify(obs))
-    state_narsese = narsify_from_state(env_state)
-    statements = [st for st in state_narsese if "wall" not in st or complete]
-    for statement in statements:
-        send_input(process, statement)
-        get_raw_output(process)
-    # send_input(sock, narsify_from_state(env_state))
-
-
-def relative_beliefs(env_state: dict) -> list[str]:
-    """Produce NARS statements about relative positions of objects"""
-    beliefs: list[str] = []
-    # we need to process the key, the door and the goal (coffin bed)
-    try:
-        key = next(obj for obj in env_state["Objects"] if obj["Name"] == "key")
-    except StopIteration:
-        key = None
-    try:
-        door = next(obj for obj in env_state["Objects"] if obj["Name"] == "door")
-    except StopIteration:
-        door = None
-    try:
-        goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "coffin_bed")
-    except StopIteration:
-        return []
-    try:
-        avatar = next(
-            obj for obj in env_state["Objects"] if obj["Name"] == "drunk_dwarf"
-        )
-    except StopIteration:
-        return []
-
-    # we need to know the orientation of the avatar
-    orient: str = avatar["Orientation"]
-    if orient == "NONE":
-        return []
-
-    # we need to know the location of the avatar
-    avatar_loc: tuple[int, int] = avatar["Location"]
-
-    # check if the key in in 180 degree arc in front
-    if key is not None:
-        key_loc = key["Location"]
-        relpos = nal_rel_pos("key", orient, avatar_loc, key_loc)
-        if relpos is not None:
-            beliefs.append(relpos)
-            beliefs.extend(nal_distance("key", (avatar_loc, orient), key_loc))
-
-    # check if the door is in front
-    if door is not None:
-        door_loc = door["Location"]
-        relpos = nal_rel_pos("door", orient, avatar_loc, door_loc)
-        if relpos is not None:
-            beliefs.append(relpos)
-            beliefs.extend(nal_distance("door", (avatar_loc, orient), door_loc))
-
-    # check if the coffin_bed is in front
-    goal_loc = goal["Location"]
-    relpos = nal_rel_pos("coffin_bed", orient, avatar_loc, goal_loc)
-    if relpos is not None:
-        beliefs.append(relpos)
-        beliefs.extend(nal_distance("coffin_bed", (avatar_loc, orient), goal_loc))
-
-    # wall information
-    walls = [
-        (i, obj["Location"])
-        for i, obj in enumerate(env_state["Objects"])
-        if obj["Name"] == "wall"
-    ]
-    for i, pos in walls:
-        relpos = nal_rel_pos("wall" + str(i), orient, avatar_loc, pos)
-        if relpos is not None:
-            beliefs.append(relpos)
-            beliefs.extend(nal_distance("wall" + str(i), (avatar_loc, orient), pos))
-
-    return beliefs
-
-
-def nal_rel_pos(
-    obname: str, orient: str, avatar_loc: tuple[int, int], obloc: tuple[int, int]
-) -> Optional[str]:
-    """Produce NARS statement about relative position of an object w.r.t. avatar
-
-    The object is required to be in front of the avatar.
-    """
-    match orient:
-        case "UP":
-            if obloc[1] < avatar_loc[1]:
-                if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [ahead]>")
-                if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [leftward]>")
-                if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [rightward]>")
-            if obloc[1] == avatar_loc[1]:
-                if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [leftward]>")
-                if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [rightward]>")
-        case "RIGHT":
-            if obloc[0] > avatar_loc[0]:
-                if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [ahead]>")
-                if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [leftward]>")
-                if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [rightward]>")
-            if obloc[0] == avatar_loc[0]:
-                if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [leftward]>")
-                if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [rightward]>")
-        case "DOWN":
-            if obloc[1] > avatar_loc[1]:
-                if obloc[0] == avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [ahead]>")
-                if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [rightward]>")
-                if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [leftward]>")
-            if obloc[1] == avatar_loc[1]:
-                if obloc[0] < avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [rightward]>")
-                if obloc[0] > avatar_loc[0]:
-                    return nal_now(f"<{ext(obname)} --> [leftward]>")
-        case "LEFT":
-            if obloc[0] < avatar_loc[0]:
-                if obloc[1] == avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [ahead]>")
-                if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [rightward]>")
-                if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [leftward]>")
-            if obloc[0] == avatar_loc[0]:
-                if obloc[1] < avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [rightward]>")
-                if obloc[1] > avatar_loc[1]:
-                    return nal_now(f"<{ext(obname)} --> [leftward]>")
-
-    return None
-
-
-def nal_distance(
-    obname: str, avatar_info: tuple[tuple[int, int], str], obloc: tuple[int, int]
-) -> list[str]:
-    """Produce NARS statement about distance of an object w.r.t. avatar
-
-    Represents distance as 'far' / 'near', depending on the manhattan distance.
-    """
-
-    def ds_str(ds):
-        dss = str(abs(ds))
-        if ds > 0:  # left
-            return "L" + dss
-        if ds < 0:
-            return "R" + dss
-        return dss
-
-    avatar_loc, orient = avatar_info
-    if manhattan_distance(avatar_loc, obloc) > 2:
-        # return [nal_now(f"<{ext(obname)} --> [far]>")]
-        return []
-
-    df, dss = 0, "0"
-    match orient:
-        case "UP":
-            if obloc[1] < avatar_loc[1]:
-                df, ds = avatar_loc[1] - obloc[1], avatar_loc[0] - obloc[0]
-                dss = ds_str(ds)
-        case "RIGHT":
-            if obloc[0] > avatar_loc[0]:
-                df, ds = obloc[0] - avatar_loc[0], avatar_loc[1] - obloc[1]
-                dss = ds_str(ds)
-        case "DOWN":
-            if obloc[1] > avatar_loc[1]:
-                df, ds = obloc[1] - avatar_loc[1], obloc[0] - avatar_loc[0]
-                dss = ds_str(ds)
-        case "LEFT":
-            if obloc[0] < avatar_loc[0]:
-                df, ds = avatar_loc[0] - obloc[0], obloc[1] - avatar_loc[1]
-                dss = ds_str(ds)
-
-    return [
-        nal_now(f"<({ext(obname)} * {df}) --> [delta_forward]>"),
-        nal_now(f"<({ext(obname)} * {dss}) --> [delta_sideways]>"),
-    ]
-
-
-class DrunkDwarfAgent(Agent):
+class DrunkDwarfAgent(NarsAgent):
     """Agent for Drunk Dwarf"""
 
-    NARS_OPERATIONS = {
-        "^rotate_left": 1,
-        "^move_forwards": 2,
-        "^rotate_right": 3,
-    }
+    NARS_OPERATIONS = [
+        "^rotate_left",
+        "^move_forwards",
+        "^rotate_right",
+    ]
     VIEW_RADIUS = 2
+    AVATAR_LABEL = "drunk_dwarf"
 
     def __init__(
         self,
@@ -500,57 +242,20 @@ class DrunkDwarfAgent(Agent):
         think_ticks: int = 5,
         background_knowledge=None,
     ):
-        super().__init__(env)
-        self.goal = goal
-        self.think_ticks = think_ticks
-        self.background_knowledge = background_knowledge
-
-        # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
-        # process_cmd = [
-        #     (NARS_PATH / "NAR").as_posix(),
-        #     "UDPNAR",
-        #     IP,
-        #     str(PORT),
-        #     "1000000",
-        #     "true",
-        # ]
-        # ./NAR shell
-        process_cmd = [
-            (NARS_PATH / "NAR").as_posix(),
-            "shell",
-        ]
-        self.process: subprocess.Popen = subprocess.Popen(
-            process_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            universal_newlines=True,
+        super().__init__(
+            env,
+            DrunkDwarfAgent.NARS_OPERATIONS,
+            goal,
+            think_ticks,
+            background_knowledge,
         )
-        # sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
-
-        # setup NARS
-        setup_nars(self.process, DrunkDwarfAgent.NARS_OPERATIONS)
-        # logger.info("\n".join(get_raw_output(self.process)))
-
-        # send background knowledge
-        if self.background_knowledge is not None:
-            for statement in self.background_knowledge:
-                send_input(self.process, statement)
-        # send goal knowledge
-        if self.goal.knowledge is not None:
-            for belief in self.goal.knowledge:
-                send_input(self.process, belief)
-
-        send_input(self.process, "3")
 
         # init agent's state
         self.has_key = False
         self.object_info = {"current": {}, "previous": {}}
 
     def reset(self, level_string: Optional[str] = None):
-        if level_string is None:
-            self.env.reset()
-        else:
-            self.env.reset(level_string=level_string)
+        super().reset(level_string)
 
         # reset agent's state
         self.has_key = False
@@ -566,7 +271,7 @@ class DrunkDwarfAgent(Agent):
 
         nars_output = expect_output(
             self.process,
-            list(DrunkDwarfAgent.NARS_OPERATIONS.keys()),
+            self.operations,
             goal_reentry=self.goal,
             think_ticks=self.think_ticks,
             patience=1,
@@ -582,7 +287,7 @@ class DrunkDwarfAgent(Agent):
 
     def determine_actions(self, nars_output: dict[str, Any]) -> list[list[int]]:
         """Determine appropriate Gym actions based on NARS output"""
-        env_state = self.env.get_state()
+        env_state: dict[str, Any] = self.env.get_state()  # type: ignore
         to_griddly_id = {
             "^rotate_left": 1,
             "^move_forwards": 2,
@@ -599,7 +304,9 @@ class DrunkDwarfAgent(Agent):
             args = exe["arguments"]
             if op == "^goto":
                 avatar = next(
-                    obj for obj in env_state["Objects"] if obj["Name"] == "drunk_dwarf"
+                    obj
+                    for obj in env_state["Objects"]
+                    if obj["Name"] == DrunkDwarfAgent.AVATAR_LABEL
                 )
 
                 if len(args) < 2:
@@ -736,12 +443,14 @@ class DrunkDwarfAgent(Agent):
                 else:
                     send_input(self.process, nal_now(f"<{ext(obj_name)} --> [gone]>"))
 
-    def observe(self, complete=False):
-        env_state = self.env.get_state()
+    def observe(self, complete=False) -> None:
+        env_state: dict[str, Any] = self.env.get_state()  # type: ignore
 
         try:
             avatar = next(
-                obj for obj in env_state["Objects"] if obj["Name"] == "drunk_dwarf"
+                obj
+                for obj in env_state["Objects"]
+                if obj["Name"] == DrunkDwarfAgent.AVATAR_LABEL
             )
         except StopIteration:
             return
@@ -752,7 +461,7 @@ class DrunkDwarfAgent(Agent):
         self.object_info["current"] = {
             obj["Name"]: obj["Location"]
             for obj in env_state["Objects"]
-            if obj["Name"] != "drunk_dwarf"
+            if obj["Name"] != DrunkDwarfAgent.AVATAR_LABEL
         }  # FIXME: narrow down to only objects in front of agent, make this a set of labels
 
         self.object_info["current"] = {
@@ -927,7 +636,7 @@ class Runner:
             _, reward, done, info = self.agent.env.step(gym_actions[0])
             self.agent.observe()
 
-            env_state = self.agent.env.get_state()  # type: ignore
+            env_state: dict[str, Any] = self.agent.env.get_state()  # type: ignore
             env_state["reward"] = reward
 
             satisfied_goals = [g.satisfied(env_state, info) for g in self.goals]
