@@ -571,7 +571,7 @@ class Runner:
             self.agent.reset(level_string=lvl_str)
 
             for i in range(max_iterations):
-                self.agent.observe(complete=i % 1 == 0)
+                self.agent.observe(complete=True)
 
                 _, reward, cumr, done, info = self.agent.step()
                 run_info["episode_reward"] += cumr

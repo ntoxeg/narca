@@ -7,19 +7,10 @@ import numpy as np
 from griddly.util.rllib.environment.level_generator import LevelGenerator
 from tensorboardX import SummaryWriter
 
-from .agent import Agent
+from .agent import NarsAgent
 from .astar import pathfind
 from .nar import *
 from .utils import *
-
-NARS_OPERATIONS = {
-    "^rotate_left": 1,
-    "^move_forwards": 2,
-    "^rotate_right": 3,
-    "^move_backwards": 4,
-    "^attack": 5,
-    # "^goto": 6,
-}
 
 
 class ZeldaLevelGenerator(LevelGenerator):
@@ -233,116 +224,19 @@ class ZeldaLevelGenerator(LevelGenerator):
         return self._level_string(map_)
 
 
-def narsify_from_state(env_state: dict[str, Any]) -> list[str]:
-    """Produce NARS statements from environment semantic state"""
-    # TODO: handle the case where every type of an object can be a multiple
-    special_types = ["wall", "avatar"]
-
-    walls = [
-        (i, obj["Location"])
-        for i, obj in enumerate(env_state["Objects"])
-        if obj["Name"] == "wall"
-    ]
-
-    try:
-        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-        avatar_loc = f"<({ext('SELF')} * {loc(avatar['Location'])}) --> at>. :|:"
-        avatar_orient = (
-            f"<{ext('SELF')} --> [orient-{avatar['Orientation'].lower()}]>. :|:"
-        )
-    except StopIteration:
-        return []
-    avatar_beliefs = [avatar_loc, avatar_orient]
-
-    object_beliefs = [
-        f"<({ext(obj['Name'])} * {loc(obj['Location'])}) --> at>. :|:"
-        for obj in env_state["Objects"]
-        if obj["Name"] not in special_types
-    ]
-    wall_beliefs = [
-        f"<({ext('wall' + str(i))} * {loc(pos)}) --> at>. :|:" for i, pos in walls
-    ]
-
-    return relative_beliefs(env_state)
-
-
-def send_observation(
-    process: subprocess.Popen, env_state: dict, complete=False
-) -> None:
-    """Send observation to NARS
-
-    Args:
-        process: NARS process
-        env_state: environment state
-        complete: whether to send the complete observation (include wall beliefs)
-    """
-    # send the observation to NARS
-    # send_input(sock, narsify(obs))
-    state_narsese = narsify_from_state(env_state)
-    statements = [st for st in state_narsese if "wall" not in st or complete]
-    for statement in statements:
-        send_input(process, statement)
-        get_raw_output(process)
-    # send_input(sock, narsify_from_state(env_state))
-
-
-def relative_beliefs(env_state: dict) -> list[str]:
-    """Produce NARS statements about relative positions of objects"""
-    beliefs = []
-    # we need to process the key, the spider and the goal (door)
-    try:
-        key = next(obj for obj in env_state["Objects"] if obj["Name"] == "key")
-    except StopIteration:
-        key = None
-    try:
-        spider = next(obj for obj in env_state["Objects"] if obj["Name"] == "spider")
-    except StopIteration:
-        spider = None
-    try:
-        goal = next(obj for obj in env_state["Objects"] if obj["Name"] == "goal")
-    except StopIteration:
-        return []
-    try:
-        avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    except StopIteration:
-        return []
-
-    # we need to know the orientation of the avatar
-    orient = avatar["Orientation"]
-    if orient == "NONE":
-        return []
-
-    # we need to know the location of the avatar
-    avatar_loc = avatar["Location"]
-
-    # check if the key in in 180 degree arc in front
-    if key is not None:
-        key_loc = key["Location"]
-        relpos = nal_rel_pos("key", orient, avatar_loc, key_loc)
-        if relpos is not None:
-            beliefs.append(relpos)
-            beliefs.append(nal_distance("key", avatar_loc, key_loc))
-
-    # check if the spider is in front
-    if spider is not None:
-        spider_loc = spider["Location"]
-        relpos = nal_rel_pos("spider", orient, avatar_loc, spider_loc)
-        if relpos is not None:
-            beliefs.append(relpos)
-            beliefs.append(nal_distance("spider", avatar_loc, spider_loc))
-
-    # check if the goal is in front
-    goal_loc = goal["Location"]
-    relpos = nal_rel_pos("goal", orient, avatar_loc, goal_loc)
-    if relpos is not None:
-        beliefs.append(relpos)
-        beliefs.append(nal_distance("goal", avatar_loc, goal_loc))
-
-    return beliefs
-
-
-class ZeldaAgent(Agent):
+class ZeldaAgent(NarsAgent):
     """Agent for Zelda"""
+
+    NARS_OPERATIONS = [
+        "^rotate_left",
+        "^move_forwards",
+        "^rotate_right",
+        "^move_backwards",
+        "^attack",
+        # "^goto",
+    ]
+    VIEW_RADIUS = 2
+    AVATAR_LABEL = "avatar"
 
     def __init__(
         self,
@@ -351,55 +245,24 @@ class ZeldaAgent(Agent):
         think_ticks: int = 5,
         background_knowledge=None,
     ):
-        super().__init__(env)
-        self.goal = goal
-        self.has_key = False
-        self.think_ticks = think_ticks
-        self.background_knowledge = background_knowledge
-
-        # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
-        # process_cmd = [
-        #     (NARS_PATH / "NAR").as_posix(),
-        #     "UDPNAR",
-        #     IP,
-        #     str(PORT),
-        #     "1000000",
-        #     "true",
-        # ]
-        # ./NAR shell
-        process_cmd = [
-            (NARS_PATH / "NAR").as_posix(),
-            "shell",
-        ]
-        self.process = subprocess.Popen(
-            process_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            universal_newlines=True,
+        super().__init__(
+            env,
+            ZeldaAgent.NARS_OPERATIONS,
+            goal,
+            think_ticks,
+            background_knowledge,
         )
-        # sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
 
-        # setup NARS
-        setup_nars(self.process, NARS_OPERATIONS)
-        # logger.info("\n".join(get_raw_output(self.process)))
-
-        # send background knowledge
-        if self.background_knowledge is not None:
-            for statement in self.background_knowledge:
-                send_input(self.process, statement)
-        # send goal knowledge
-        if self.goal.knowledge is not None:
-            for belief in self.goal.knowledge:
-                send_input(self.process, belief)
-
-        send_input(self.process, "3")
+        # init agent's state
+        self.has_key = False
+        self.object_info = {"current": {}, "previous": {}}
 
     def reset(self, level_string: Optional[str] = None):
-        if level_string is None:
-            self.env.reset()
-        else:
-            self.env.reset(level_string=level_string)
+        super().reset(level_string)
+
+        # reset agent's state
         self.has_key = False
+        self.object_info = {"current": {}, "previous": {}}
 
         # send reset info to NARS
         send_input(self.process, nal_now("RESET"))
@@ -411,7 +274,7 @@ class ZeldaAgent(Agent):
 
         nars_output = expect_output(
             self.process,
-            list(NARS_OPERATIONS.keys()),
+            self.operations,
             goal_reentry=self.goal,
             think_ticks=self.think_ticks,
             patience=1,
@@ -427,12 +290,13 @@ class ZeldaAgent(Agent):
 
     def determine_actions(self, nars_output: dict[str, Any]) -> list[list[int]]:
         """Determine appropriate Gym actions based on NARS output"""
-        env_state = self.env.get_state()
+        env_state: dict[str, Any] = self.env.get_state()  # type: ignore
         to_griddly_id = {
             "^rotate_left": 1,
             "^move_forwards": 2,
             "^rotate_right": 3,
             "^move_backwards": 4,
+            "^attack": 1,
         }
 
         if len(nars_output["executions"]) < 1:
@@ -445,7 +309,9 @@ class ZeldaAgent(Agent):
             args = exe["arguments"]
             if op == "^goto":
                 avatar = next(
-                    obj for obj in env_state["Objects"] if obj["Name"] == "avatar"
+                    obj
+                    for obj in env_state["Objects"]
+                    if obj["Name"] == ZeldaAgent.AVATAR_LABEL
                 )
 
                 if len(args) < 2:
@@ -480,9 +346,115 @@ class ZeldaAgent(Agent):
 
         return obs, reward, cumr, done, info
 
-    def observe(self, complete=False):
-        env_state = self.env.get_state()
-        send_observation(self.process, env_state, complete)
+    def _pos_beliefs(
+        self, avatar_loc: tuple[int, int], avatar_orient: str
+    ) -> list[str]:
+        """Produce NARS statements from held object information"""
+
+        return [
+            (f"<{ext('SELF')} --> [orient-{avatar_orient.lower()}]>. :|:")
+        ] + self._relative_beliefs(avatar_loc, avatar_orient)
+
+    def _relative_beliefs(
+        self, avatar_loc: tuple[int, int], avatar_orient: str
+    ) -> list[str]:
+        """Produce NARS statements about relative positions of objects"""
+        beliefs: list[str] = []
+        if avatar_orient == "NONE":
+            return []
+
+        for typ in self.object_info["current"]:
+            for obname, obloc in self.object_info["current"][typ].items():
+                relpos = nal_rel_pos(obname, avatar_orient, avatar_loc, obloc)
+                if relpos is not None:
+                    beliefs.append(relpos)
+                    beliefs.extend(
+                        nal_distance(obname, (avatar_loc, avatar_orient), obloc)
+                    )
+
+        return beliefs
+
+    def _diff_beliefs(self, avatar_loc: tuple[int, int]) -> list[str]:
+        beliefs: list[str] = []
+
+        # send info about what got closer and what further away
+        for typ, obinfo in self.object_info["previous"].items():
+            for obj_name, obj_loc in obinfo.items():
+                if (
+                    typ in self.object_info["current"]
+                    and obj_name in self.object_info["current"][typ]
+                ):
+                    new_obj_loc = self.object_info["current"][typ][obj_name]
+                    if manhattan_distance(avatar_loc, new_obj_loc) < manhattan_distance(
+                        avatar_loc, obj_loc
+                    ):
+                        beliefs.append(nal_now(f"<{ext(obj_name)} --> [closer]>"))
+                    elif manhattan_distance(
+                        avatar_loc, new_obj_loc
+                    ) > manhattan_distance(avatar_loc, obj_loc):
+                        beliefs.append(nal_now(f"<{ext(obj_name)} --> [further]>"))
+                else:
+                    beliefs.append(nal_now(f"<{ext(obj_name)} --> [gone]>"))
+
+        return beliefs
+
+    def _send_beliefs(self, state_narsese: list[str]) -> None:
+        for statement in state_narsese:
+            send_input(self.process, statement)
+            get_raw_output(self.process)
+
+    def observe(self, complete=False) -> None:
+        env_state: dict[str, Any] = self.env.get_state()  # type: ignore
+
+        try:
+            avatar = next(
+                obj
+                for obj in env_state["Objects"]
+                if obj["Name"] == ZeldaAgent.AVATAR_LABEL
+            )
+        except StopIteration:
+            return
+
+        avatar_loc, avatar_orient = avatar["Location"], avatar["Orientation"]
+
+        self.object_info["previous"] = self.object_info["current"]
+        self.object_info["current"] = {
+            obj["Name"]: obj["Location"]
+            for obj in env_state["Objects"]
+            if obj["Name"] != ZeldaAgent.AVATAR_LABEL
+        }  # FIXME: narrow down to only objects in front of agent, make this a set of labels
+
+        self.object_info["current"] = {
+            typ: {
+                f"{obj['Name']}{i+1}": obj["Location"]
+                for i, obj in enumerate(env_state["Objects"])
+                if obj["Name"] == typ
+                and manhattan_distance(avatar_loc, obj["Location"])
+                <= ZeldaAgent.VIEW_RADIUS
+            }
+            for typ in self.object_info["current"].keys()
+        }
+
+        # HACK: for singletons change the name to type's name
+        for typ in self.object_info["current"]:
+            typ_info = self.object_info["current"][typ]
+            if len(typ_info) == 1:
+                self.object_info["current"][typ] = {
+                    typ: obj for obj in typ_info.values()
+                }
+
+        for typ, obinfo in self.object_info["current"].items():
+            for obj_name in obinfo.keys():
+                if (
+                    typ in self.object_info["previous"]
+                    and obj_name not in self.object_info["previous"][typ]
+                ):
+                    send_input(self.process, nal_now(f"<{ext(obj_name)} --> [new]>"))
+
+        self._send_beliefs(self._pos_beliefs(avatar_loc, avatar_orient))
+
+        self._send_beliefs(self._diff_beliefs(avatar_loc))
+
         send_input(self.process, "3")
 
 
@@ -557,7 +529,7 @@ class Runner:
             self.agent.reset(level_string=lvl_str)
 
             for i in range(max_iterations):
-                self.agent.observe(complete=i % 10 == 0)
+                self.agent.observe(complete=True)
 
                 _, reward, cumr, done, info = self.agent.step()
                 run_info["episode_reward"] += cumr
