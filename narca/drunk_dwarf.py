@@ -5,7 +5,6 @@ from time import sleep
 import gym
 import numpy as np
 from griddly.util.rllib.environment.level_generator import LevelGenerator
-from tensorboardX import SummaryWriter
 
 from .agent import NarsAgent
 from .astar import pathfind
@@ -234,6 +233,7 @@ class DrunkDwarfAgent(NarsAgent):
     ]
     VIEW_RADIUS = 1
     AVATAR_LABEL = "drunk_dwarf"
+    MAX_EP_REWARD = 3.0
 
     def __init__(
         self,
@@ -507,124 +507,3 @@ def demo_reach_key(symbol: str, agent: DrunkDwarfAgent) -> None:
         if done:
             agent.reset()
             demo_reach_key(symbol, agent)
-
-
-class Runner:
-    """Functionality for running agent interaction episodes"""
-
-    def __init__(
-        self,
-        agent: DrunkDwarfAgent,
-        goals: list[Goal],
-        levelgen: Optional[ZeldaLevelGenerator] = None,
-    ):
-        self.agent = agent
-        self.goals = goals
-        self.levelgen = levelgen
-
-    def run(
-        self,
-        num_episodes: int,
-        max_iterations: int,
-        log_tb: bool = False,
-        tb_comment_suffix: str = "",
-        callbacks: list[Callable] = [],
-    ) -> None:
-        """Run agent interaction episodes"""
-        run_info = dict(total_reward=0.0, episode_reward=0.0)
-        done = False
-        tb_writer = (
-            SummaryWriter(comment=f"-drunk_dwarf{tb_comment_suffix}")
-            if log_tb
-            else None
-        )
-
-        for episode in range(num_episodes):
-            lvl_str = self.levelgen.generate() if self.levelgen is not None else None
-            self.agent.reset(level_string=lvl_str)
-
-            for i in range(max_iterations):
-                self.agent.observe(complete=True)
-
-                _, reward, cumr, done, info = self.agent.step()
-                run_info["episode_reward"] += cumr
-
-                env_state = self.agent.env.get_state()  # type: ignore
-                env_state["reward"] = reward
-
-                satisfied_goals = [g.satisfied(env_state, info) for g in self.goals]
-                for g, sat in zip(self.goals, satisfied_goals):
-                    if sat:
-                        print(f"{g.symbol} satisfied.")
-                        send_input(self.agent.process, nal_now(g.symbol))
-                        get_raw_output(self.agent.process)
-
-                        if g.symbol == "GOT_KEY":
-                            self.agent.has_key = True
-
-                self.agent.env.render(observer="global")  # type: ignore # Renders the entire environment
-
-                if done:
-                    break
-
-            print(
-                f"Episode {episode+1} finished with reward {run_info['episode_reward']}."
-            )
-            run_info["total_reward"] += run_info["episode_reward"]
-
-            # Performance logging subroutines
-            for callback in callbacks:
-                callback(run_info)
-            if tb_writer is not None:
-                tb_writer.add_scalar(
-                    "train/episode_reward", run_info["episode_reward"], episode
-                )
-                tb_writer.add_scalar(
-                    "train/total_reward", run_info["total_reward"], episode
-                )
-
-            # Post-episode wrap up
-            run_info["episode_reward"] = 0.0
-
-        print(
-            f"Average total reward per episode: {run_info['total_reward'] / num_episodes}."
-        )
-        self.agent.env.close()  # Call explicitly to avoid exception on quit
-        send_input(self.agent.process, "quit")
-        inspect = get_raw_output(self.agent.process)
-
-    def demo_goal(self, plan: list[str]) -> None:
-        """Demonstrate reaching the goal
-
-        Generates levels that fit a given plan.
-        """
-        lvl_str = (
-            self.levelgen.generate_for_plan(plan) if self.levelgen is not None else None
-        )
-
-        self.agent.reset(level_string=lvl_str)
-        for action in plan:
-            send_input(self.agent.process, f"{action}. :|:")
-            gym_actions = self.agent.determine_actions(
-                {"executions": [{"operator": action, "arguments": []}]}
-            )
-            _, reward, done, info = self.agent.env.step(gym_actions[0])
-            self.agent.observe()
-
-            env_state: dict[str, Any] = self.agent.env.get_state()  # type: ignore
-            env_state["reward"] = reward
-
-            satisfied_goals = [g.satisfied(env_state, info) for g in self.goals]
-            for g, sat in zip(self.goals, satisfied_goals):
-                if sat:
-                    print(f"{g.symbol} satisfied.")
-                    send_input(self.agent.process, nal_now(g.symbol))
-                    get_raw_output(self.agent.process)
-
-                    if g.symbol == "GOT_KEY":
-                        self.agent.has_key = True
-
-            self.agent.env.render(observer="global")  # type: ignore
-            sleep(1)
-            if reward < 0.0:  # reward is -1.0 in case of avatar's death
-                self.demo_goal(plan)

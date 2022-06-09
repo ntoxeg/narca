@@ -8,9 +8,10 @@ import neptune.new as neptune
 from griddly import gd
 from icecream import ic
 
+from narca.agent import Runner
 from narca.nar import *
 from narca.utils import *
-from narca.zelda import Runner, ZeldaAgent
+from narca.zelda import ZeldaAgent
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
@@ -20,6 +21,7 @@ NUM_EPISODES = 50
 MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Zelda-v0"
 MAIN_TAG = "main"
+DIFFICULTY_LEVEL = 1
 
 THINK_TICKS = 5
 
@@ -38,12 +40,17 @@ def key_check(_, info) -> bool:
 if __name__ == "__main__":
     try:
         neprun = neptune.init(
-            project=os.environ["NEPTUNE_PROJECT"], tags=[ENV_NAME, MAIN_TAG]
+            project=os.environ["NEPTUNE_PROJECT"],
+            tags=[ENV_NAME, MAIN_TAG, f"difficulty:{DIFFICULTY_LEVEL}"],
         )
     except KeyError:
         neprun = None
 
-    env = gym.make(ENV_NAME, player_observer_type=gd.ObserverType.VECTOR)
+    env = gym.make(
+        ENV_NAME,
+        player_observer_type=gd.ObserverType.VECTOR,
+        level=DIFFICULTY_LEVEL - 1,
+    )
     env.enable_history(True)  # type: ignore
 
     reach_object_knowledge = [
@@ -91,7 +98,7 @@ if __name__ == "__main__":
     ]
 
     agent.setup_goals(COMPLETE_GOAL, goals)
-    runner = Runner(agent, goals)
+    runner = Runner(agent)
 
     callbacks = []
     if neprun is not None:
@@ -100,18 +107,26 @@ if __name__ == "__main__":
             "think_ticks": THINK_TICKS,
         }
 
-        def nep_callback(run_info: dict):
+        def nep_ep_callback(run_info: dict):
             neprun["train/episode_reward"].log(run_info["episode_reward"])
             neprun["train/total_reward"].log(run_info["total_reward"])
 
-        callbacks.append(nep_callback)
+        def nep_run_callback(run_info: dict):
+            neprun["train/avg_ep_reward"] = run_info["avg_ep_reward"]
+            neprun[
+                "train/avg_completion_rate"
+            ] = f"{run_info['avg_completion_rate']*100:.0f}%"
+            neprun["train/completed_rate"] = f"{run_info['completed_rate']*100:.0f}%"
+
+        callbacks.append(("on_episode_end", nep_ep_callback))
+        callbacks.append(("on_run_end", nep_run_callback))
 
     # Run the agent
     runner.run(
         NUM_EPISODES,
         MAX_ITERATIONS,
         log_tb=True,
-        tb_comment_suffix=f"-{MAIN_TAG}",
+        tb_comment_suffix=f"zelda-{MAIN_TAG}",
         callbacks=callbacks,
     )
     if neprun is not None:
