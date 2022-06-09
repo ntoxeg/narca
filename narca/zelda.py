@@ -241,14 +241,16 @@ class ZeldaAgent(NarsAgent):
     def __init__(
         self,
         env: gym.Env,
-        goal: Goal,
+        main_goal: Optional[Goal] = None,
+        goals: Optional[list[Goal]] = None,
         think_ticks: int = 5,
         background_knowledge=None,
     ):
         super().__init__(
             env,
             ZeldaAgent.NARS_OPERATIONS,
-            goal,
+            main_goal,
+            goals,
             think_ticks,
             background_knowledge,
         )
@@ -269,13 +271,15 @@ class ZeldaAgent(NarsAgent):
         send_input(self.process, "100")
 
     def plan(self) -> list[list[int]]:
+        if self.main_goal is None:
+            raise RuntimeError("Main goal is not set.")
         # determine the action to take from NARS
-        send_input(self.process, nal_demand(self.goal.symbol))
+        send_input(self.process, nal_demand(self.main_goal.symbol))
 
         nars_output = expect_output(
             self.process,
             self.operations,
-            goal_reentry=self.goal,
+            goal_reentry=self.main_goal,
             think_ticks=self.think_ticks,
             patience=1,
         )
@@ -410,7 +414,7 @@ class ZeldaAgent(NarsAgent):
             avatar = next(
                 obj
                 for obj in env_state["Objects"]
-                if obj["Name"] == ZeldaAgent.AVATAR_LABEL
+                if obj["Name"] == __class__.AVATAR_LABEL
             )
         except StopIteration:
             return
@@ -421,7 +425,7 @@ class ZeldaAgent(NarsAgent):
         self.object_info["current"] = {
             obj["Name"]: obj["Location"]
             for obj in env_state["Objects"]
-            if obj["Name"] != ZeldaAgent.AVATAR_LABEL
+            if obj["Name"] != __class__.AVATAR_LABEL
         }  # FIXME: narrow down to only objects in front of agent, make this a set of labels
 
         self.object_info["current"] = {
@@ -430,7 +434,7 @@ class ZeldaAgent(NarsAgent):
                 for i, obj in enumerate(env_state["Objects"])
                 if obj["Name"] == typ
                 and manhattan_distance(avatar_loc, obj["Location"])
-                <= ZeldaAgent.VIEW_RADIUS
+                <= __class__.VIEW_RADIUS
             }
             for typ in self.object_info["current"].keys()
         }
@@ -503,11 +507,6 @@ class Runner:
         self.agent = agent
         self.goals = goals
         self.levelgen = levelgen
-
-        for g in self.goals:
-            if g.symbol != self.agent.goal.symbol and g.knowledge is not None:
-                for statement in g.knowledge:
-                    send_input(self.agent.process, statement)
 
     def run(
         self,

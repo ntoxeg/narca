@@ -32,14 +32,16 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         self,
         env: gym.Env,
         ops: list[str],
-        goal: Goal,
+        main_goal: Optional[Goal] = None,
+        goals: Optional[list[Goal]] = None,
         think_ticks: int = 5,
         background_knowledge: Optional[list[str]] = None,
     ):
         super().__init__(env)
 
         self.operations = ops
-        self.goal = goal
+        self.main_goal = main_goal
+        self.goals = goals
         self.think_ticks = think_ticks
         self.background_knowledge = background_knowledge
 
@@ -73,12 +75,21 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         if self.background_knowledge is not None:
             for statement in self.background_knowledge:
                 send_input(self.process, statement)
-        # send goal knowledge
-        if self.goal.knowledge is not None:
-            for belief in self.goal.knowledge:
-                send_input(self.process, belief)
+
+        if main_goal is not None and goals is not None:
+            self.setup_goals(main_goal, goals)
 
         send_input(self.process, "3")
+
+    def setup_goals(self, main_goal: Goal, goals: list[Goal]):
+        self.main_goal = main_goal
+        self.goals = goals
+
+        # send goal knowledge
+        for g in goals:
+            if g.knowledge is not None:
+                for belief in g.knowledge:
+                    send_input(self.process, belief)
 
     @abstractmethod
     def observe(self, complete: bool = False) -> None:

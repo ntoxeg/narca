@@ -76,7 +76,7 @@ def expect_output(
     ):
         if patience <= 0:
             ic("Patience has run out, returning None.")
-            return None  # type: ignore
+            return None
         patience -= 1
 
         if goal_reentry is not None:

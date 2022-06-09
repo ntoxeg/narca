@@ -21,32 +21,7 @@ MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Zelda-v0"
 MAIN_TAG = "main"
 
-THINK_TICKS = 10
-
-
-def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
-    """Check if an object has been reached
-
-    Assumes that if the object does not exist, then it must have been reached.
-    """
-    history = info["History"]
-    if len(history) == 0:
-        return False
-
-    last_avent = last_avatar_event(history)
-    if last_avent is not None:
-        if last_avent["DestinationObjectName"] == obj_type:
-            send_input(
-                agent.process,
-                nal_now(f"<{ext(last_avent['DestinationObjectName'])} --> [reached]>"),
-            )
-            return True
-
-    return False
-
-
-def got_rewarded(env_state: dict, _) -> bool:
-    return env_state["reward"] > 0
+THINK_TICKS = 5
 
 
 def key_check(_, info) -> bool:
@@ -90,11 +65,20 @@ if __name__ == "__main__":
         f"<({key_goal_sym} &/ <{ext('goal')} --> [reached]>) =/> {complete_goal_sym}>."
     ]
 
-    KEY_GOAL = Goal(key_goal_sym, partial(object_reached, "key"), reach_key)
+    agent = ZeldaAgent(
+        env,
+        think_ticks=THINK_TICKS,
+        background_knowledge=background_knowledge,
+    )
+
+    KEY_GOAL = Goal(
+        key_goal_sym, partial(object_reached, agent, "move", "key"), reach_key
+    )
     # DOOR_GOAL = Goal(door_goal_sym, partial(object_reached, "goal"), reach_door)
     COMPLETE_GOAL = Goal(
         complete_goal_sym,
-        lambda evst, info: agent.has_key and object_reached("goal", evst, info),
+        lambda evst, info: agent.has_key
+        and object_reached(agent, "move", "goal", evst, info),
         complete_goal,
     )
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
@@ -106,12 +90,7 @@ if __name__ == "__main__":
         REWARD_GOAL,
     ]
 
-    agent = ZeldaAgent(
-        env,
-        COMPLETE_GOAL,
-        think_ticks=THINK_TICKS,
-        background_knowledge=background_knowledge,
-    )
+    agent.setup_goals(COMPLETE_GOAL, goals)
     runner = Runner(agent, goals)
 
     callbacks = []

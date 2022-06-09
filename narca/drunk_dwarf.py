@@ -232,20 +232,22 @@ class DrunkDwarfAgent(NarsAgent):
         "^move_forwards",
         "^rotate_right",
     ]
-    VIEW_RADIUS = 2
+    VIEW_RADIUS = 1
     AVATAR_LABEL = "drunk_dwarf"
 
     def __init__(
         self,
         env: gym.Env,
-        goal: Goal,
+        main_goal: Optional[Goal] = None,
+        goals: Optional[list[Goal]] = None,
         think_ticks: int = 5,
         background_knowledge=None,
     ):
         super().__init__(
             env,
             DrunkDwarfAgent.NARS_OPERATIONS,
-            goal,
+            main_goal,
+            goals,
             think_ticks,
             background_knowledge,
         )
@@ -266,13 +268,15 @@ class DrunkDwarfAgent(NarsAgent):
         send_input(self.process, "100")
 
     def plan(self) -> list[list[int]]:
+        if self.main_goal is None:
+            raise RuntimeError("Main goal is not set.")
         # determine the action to take from NARS
-        send_input(self.process, nal_demand(self.goal.symbol))
+        send_input(self.process, nal_demand(self.main_goal.symbol))
 
         nars_output = expect_output(
             self.process,
             self.operations,
-            goal_reentry=self.goal,
+            goal_reentry=self.main_goal,
             think_ticks=self.think_ticks,
             patience=1,
         )
@@ -355,71 +359,23 @@ class DrunkDwarfAgent(NarsAgent):
     ) -> list[str]:
         """Produce NARS statements about relative positions of objects"""
         beliefs: list[str] = []
-
-        # we need to process the key, the door and the goal (coffin bed)
-        try:
-            keys = self.object_info["current"].get("key", {})
-            key_loc = next(o for o in keys.values())
-        except StopIteration:
-            key_loc = None
-
-        try:
-            doors = self.object_info["current"].get("door", {})
-            door_loc = next(o for o in doors.values())
-        except StopIteration:
-            door_loc = None
-
-        try:
-            goals = self.object_info["current"].get("coffin_bed", {})
-            goal_loc = next(o for o in goals.values())
-        except StopIteration:
-            return []
-
         if avatar_orient == "NONE":
             return []
 
-        # check if the key in in 180 degree arc in front
-        if key_loc is not None:
-            relpos = nal_rel_pos("key", avatar_orient, avatar_loc, key_loc)
-            if relpos is not None:
-                beliefs.append(relpos)
-                beliefs.extend(
-                    nal_distance("key", (avatar_loc, avatar_orient), key_loc)
-                )
-
-        # check if the door is in front
-        if door_loc is not None:
-            relpos = nal_rel_pos("door", avatar_orient, avatar_loc, door_loc)
-            if relpos is not None:
-                beliefs.append(relpos)
-                beliefs.extend(
-                    nal_distance("door", (avatar_loc, avatar_orient), door_loc)
-                )
-
-        # check if the coffin_bed is in front
-        relpos = nal_rel_pos("coffin_bed", avatar_orient, avatar_loc, goal_loc)
-        if relpos is not None:
-            beliefs.append(relpos)
-            beliefs.extend(
-                nal_distance("coffin_bed", (avatar_loc, avatar_orient), goal_loc)
-            )
-
-        # wall information
-        for name, pos in self.object_info["current"]["wall"].items():
-            relpos = nal_rel_pos(name, avatar_orient, avatar_loc, pos)
-            if relpos is not None:
-                beliefs.append(relpos)
-                beliefs.extend(nal_distance(name, (avatar_loc, avatar_orient), pos))
+        for typ in self.object_info["current"]:
+            for obname, obloc in self.object_info["current"][typ].items():
+                relpos = nal_rel_pos(obname, avatar_orient, avatar_loc, obloc)
+                if relpos is not None:
+                    beliefs.append(relpos)
+                    beliefs.extend(
+                        nal_distance(obname, (avatar_loc, avatar_orient), obloc)
+                    )
 
         return beliefs
 
-    def _send_pos_beliefs(self, avatar_loc: tuple, avatar_orient: str) -> None:
-        state_narsese = self._pos_beliefs(avatar_loc, avatar_orient)
-        for statement in state_narsese:
-            send_input(self.process, statement)
-            get_raw_output(self.process)
+    def _diff_beliefs(self, avatar_loc: tuple[int, int]) -> list[str]:
+        beliefs: list[str] = []
 
-    def _send_diff_beliefs(self, avatar_loc):
         # send info about what got closer and what further away
         for typ, obinfo in self.object_info["previous"].items():
             for obj_name, obj_loc in obinfo.items():
@@ -431,26 +387,30 @@ class DrunkDwarfAgent(NarsAgent):
                     if manhattan_distance(avatar_loc, new_obj_loc) < manhattan_distance(
                         avatar_loc, obj_loc
                     ):
-                        send_input(
-                            self.process, nal_now(f"<{ext(obj_name)} --> [closer]>")
-                        )
+                        beliefs.append(nal_now(f"<{ext(obj_name)} --> [closer]>"))
                     elif manhattan_distance(
                         avatar_loc, new_obj_loc
                     ) > manhattan_distance(avatar_loc, obj_loc):
-                        send_input(
-                            self.process, nal_now(f"<{ext(obj_name)} --> [further]>")
-                        )
+                        beliefs.append(nal_now(f"<{ext(obj_name)} --> [further]>"))
                 else:
-                    send_input(self.process, nal_now(f"<{ext(obj_name)} --> [gone]>"))
+                    beliefs.append(nal_now(f"<{ext(obj_name)} --> [gone]>"))
+
+        return beliefs
+
+    def _send_beliefs(self, state_narsese: list[str]) -> None:
+        for statement in state_narsese:
+            send_input(self.process, statement)
+            get_raw_output(self.process)
 
     def observe(self, complete=False) -> None:
         env_state: dict[str, Any] = self.env.get_state()  # type: ignore
+        num_sent_beliefs = 0
 
         try:
             avatar = next(
                 obj
                 for obj in env_state["Objects"]
-                if obj["Name"] == DrunkDwarfAgent.AVATAR_LABEL
+                if obj["Name"] == __class__.AVATAR_LABEL
             )
         except StopIteration:
             return
@@ -458,11 +418,11 @@ class DrunkDwarfAgent(NarsAgent):
         avatar_loc, avatar_orient = avatar["Location"], avatar["Orientation"]
 
         self.object_info["previous"] = self.object_info["current"]
-        self.object_info["current"] = {
-            obj["Name"]: obj["Location"]
+        obtypes = set(
+            obj["Name"]
             for obj in env_state["Objects"]
-            if obj["Name"] != DrunkDwarfAgent.AVATAR_LABEL
-        }  # FIXME: narrow down to only objects in front of agent, make this a set of labels
+            if obj["Name"] != __class__.AVATAR_LABEL
+        )
 
         self.object_info["current"] = {
             typ: {
@@ -470,10 +430,21 @@ class DrunkDwarfAgent(NarsAgent):
                 for i, obj in enumerate(env_state["Objects"])
                 if obj["Name"] == typ
                 and manhattan_distance(avatar_loc, obj["Location"])
-                <= DrunkDwarfAgent.VIEW_RADIUS
+                <= __class__.VIEW_RADIUS
+                and in_front(avatar_orient, avatar_loc, obj["Location"])
             }
-            for typ in self.object_info["current"].keys()
+            for typ in obtypes
         }
+
+        # search for high-importance objects that are not in the current view
+        important_types = ["key", "door", "coffin_bed"]
+        for typ in important_types:
+            if typ not in self.object_info["current"]:
+                self.object_info["current"][typ] = {
+                    f"{obj['Name']}{i+1}": obj["Location"]
+                    for i, obj in enumerate(env_state["Objects"])
+                    if obj["Name"] == typ
+                }
 
         # HACK: for singletons change the name to type's name
         for typ in self.object_info["current"]:
@@ -490,10 +461,17 @@ class DrunkDwarfAgent(NarsAgent):
                     and obj_name not in self.object_info["previous"][typ]
                 ):
                     send_input(self.process, nal_now(f"<{ext(obj_name)} --> [new]>"))
+                    num_sent_beliefs += 1
 
-        self._send_pos_beliefs(avatar_loc, avatar_orient)
+        pos_beliefs = self._pos_beliefs(avatar_loc, avatar_orient)
+        diff_beliefs = self._diff_beliefs(avatar_loc)
 
-        self._send_diff_beliefs(avatar_loc)
+        num_sent_beliefs += len(pos_beliefs) + len(diff_beliefs)
+        self._send_beliefs(pos_beliefs + diff_beliefs)
+        # ic("Sent pos beliefs:", pos_beliefs)
+        # ic("Sent diff beliefs:", diff_beliefs)
+        ic("Total beliefs sent:", num_sent_beliefs)
+        # sleep(1)
 
         send_input(self.process, "3")
 
@@ -543,11 +521,6 @@ class Runner:
         self.agent = agent
         self.goals = goals
         self.levelgen = levelgen
-
-        for g in self.goals:
-            if g.symbol != self.agent.goal.symbol and g.knowledge is not None:
-                for statement in g.knowledge:
-                    send_input(self.agent.process, statement)
 
     def run(
         self,
@@ -617,6 +590,8 @@ class Runner:
             f"Average total reward per episode: {run_info['total_reward'] / num_episodes}."
         )
         self.agent.env.close()  # Call explicitly to avoid exception on quit
+        send_input(self.agent.process, "quit")
+        inspect = get_raw_output(self.agent.process)
 
     def demo_goal(self, plan: list[str]) -> None:
         """Demonstrate reaching the goal

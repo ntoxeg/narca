@@ -17,42 +17,77 @@ def manhattan_distance(pos1: tuple[int, int], pos2: tuple[int, int]) -> int:
 
 
 # GRIDDLY RELATED
-def last_avatar_event(history: list[dict]) -> Optional[dict]:
+def last_avatar_event(agent, history: list[dict]) -> Optional[dict]:
     """Return the last avatar event in the history"""
     for event in reversed(history):
-        if event["SourceObjectName"] == "avatar":
+        if event["SourceObjectName"] == type(agent).AVATAR_LABEL:
             return event
     return None
 
 
-# TODO: agent should be of `NarsAgent`
-def object_reached(agent, obj_type: str, env_state: dict, info: dict) -> bool:
+def got_rewarded(env_state: dict, _) -> bool:
+    return env_state["reward"] > 0
+
+
+def object_reached(
+    agent, move_name: str, obj_type: str, env_state: dict, info: dict
+) -> bool:
     """Check if an object has been reached
 
     Uses event logs from Griddly environments with `enable_history(True)`.
     """
-    # try:
-    #     avatar = next(obj for obj in env_state["Objects"] if obj["Name"] == "avatar")
-    # except StopIteration:
-    #     ic("No avatar found. Goal unsatisfiable.")
-    #     return False
-    # try:
-    #     target = next(obj for obj in env_state["Objects"] if obj["Name"] == obj_type)
-    # except StopIteration:
-    #     return True
-    # return avatar["Location"] == target["Location"]
     history = info["History"]
     if len(history) == 0:
         return False
 
-    last_avent = last_avatar_event(history)
+    last_avent = last_avatar_event(agent, history)
     if last_avent is not None:
-        if last_avent["DestinationObjectName"] == obj_type:
+        if (
+            last_avent["DestinationObjectName"] == obj_type
+            and last_avent["ActionName"] == move_name
+        ):
             send_input(
                 agent.process,
                 nal_now(f"<{ext(last_avent['DestinationObjectName'])} --> [reached]>"),
             )
             return True
+
+    return False
+
+
+def in_front(
+    viewer_orient: str, viewer_loc: tuple[int, int], obloc: tuple[int, int]
+) -> bool:
+    """Check if an object is in front of the viewer"""
+    match viewer_orient:
+        case "UP":
+            return obloc[1] < viewer_loc[1]
+        case "RIGHT":
+            return obloc[0] > viewer_loc[0]
+        case "DOWN":
+            return obloc[1] > viewer_loc[1]
+        case "LEFT":
+            return obloc[0] < viewer_loc[0]
+
+    return False
+
+
+def perpendicular(
+    viewer_orient: str, viewer_loc: tuple[int, int], obloc: tuple[int, int]
+) -> bool:
+    """Check if an object is perpendicular to the viewer
+
+    Note: it is assumed that an object cannot occupy the same space as an agent.
+    """
+    match viewer_orient:
+        case "UP":
+            return obloc[1] == viewer_loc[1]
+        case "RIGHT":
+            return obloc[0] == viewer_loc[0]
+        case "DOWN":
+            return obloc[1] == viewer_loc[1]
+        case "LEFT":
+            return obloc[0] == viewer_loc[0]
 
     return False
 

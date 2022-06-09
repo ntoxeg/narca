@@ -10,8 +10,7 @@ from icecream import ic
 
 from narca.drunk_dwarf import DrunkDwarfAgent, Runner
 from narca.nar import *
-
-# from narca.utils import *
+from narca.utils import *
 
 # setup a logger for nars output
 logging.basicConfig(filename="nars_drunk_dwarf.log", filemode="w", level=logging.DEBUG)
@@ -21,41 +20,9 @@ NUM_EPISODES = 50
 MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Drunk-Dwarf-v0"
 MAIN_TAG = "main"
+DIFFICULTY_LEVEL = 1
 
-THINK_TICKS = 10
-
-
-def last_avatar_event(history: list[dict]) -> Optional[dict]:
-    """Return the last avatar event in the history"""
-    for event in reversed(history):
-        if event["SourceObjectName"] == "drunk_dwarf":
-            return event
-    return None
-
-
-def object_reached(obj_type: str, env_state: dict, info: dict) -> bool:
-    """Check if an object has been reached
-
-    Assumes that if the object does not exist, then it must have been reached.
-    """
-    history = info["History"]
-    if len(history) == 0:
-        return False
-
-    last_avent = last_avatar_event(history)
-    if last_avent is not None:
-        if last_avent["DestinationObjectName"] == obj_type:
-            send_input(
-                agent.process,
-                nal_now(f"<{ext(last_avent['DestinationObjectName'])} --> [reached]>"),
-            )
-            return True
-
-    return False
-
-
-def got_rewarded(env_state: dict, _) -> bool:
-    return env_state["reward"] > 0
+THINK_TICKS = 5
 
 
 def key_check(_, info) -> bool:
@@ -72,12 +39,17 @@ def key_check(_, info) -> bool:
 if __name__ == "__main__":
     try:
         neprun = neptune.init(
-            project=os.environ["NEPTUNE_PROJECT"], tags=[ENV_NAME, MAIN_TAG]
+            project=os.environ["NEPTUNE_PROJECT"],
+            tags=[ENV_NAME, MAIN_TAG, f"difficulty:{DIFFICULTY_LEVEL}"],
         )
     except KeyError:
         neprun = None
 
-    env = gym.make(ENV_NAME, player_observer_type=gd.ObserverType.VECTOR)
+    env = gym.make(
+        ENV_NAME,
+        player_observer_type=gd.ObserverType.VECTOR,
+        level=DIFFICULTY_LEVEL - 1,
+    )
     env.enable_history(True)  # type: ignore
 
     reach_object_knowledge = [
@@ -101,15 +73,24 @@ if __name__ == "__main__":
         f"<({door_goal_sym} &/ <{ext('coffin_bed')} --> [reached]>) =/> {complete_goal_sym}>."
     ]
 
-    KEY_GOAL = Goal(key_goal_sym, partial(object_reached, "key"), reach_key)
+    agent = DrunkDwarfAgent(
+        env,
+        think_ticks=THINK_TICKS,
+        background_knowledge=background_knowledge,
+    )
+
+    KEY_GOAL = Goal(
+        key_goal_sym, partial(object_reached, agent, "stumble", "key"), reach_key
+    )
     DOOR_GOAL = Goal(
         door_goal_sym,
-        lambda evst, info: agent.has_key and object_reached("door", evst, info),
+        lambda evst, info: agent.has_key
+        and object_reached(agent, "stumble", "door", evst, info),
         open_door,
     )
     COMPLETE_GOAL = Goal(
         complete_goal_sym,
-        partial(object_reached, "coffin_bed"),
+        partial(object_reached, agent, "stumble", "coffin_bed"),
         complete_goal,
     )
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
@@ -121,12 +102,7 @@ if __name__ == "__main__":
         REWARD_GOAL,
     ]
 
-    agent = DrunkDwarfAgent(
-        env,
-        COMPLETE_GOAL,
-        think_ticks=THINK_TICKS,
-        background_knowledge=background_knowledge,
-    )
+    agent.setup_goals(COMPLETE_GOAL, goals)
     runner = Runner(agent, goals)
 
     callbacks = []
