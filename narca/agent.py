@@ -197,10 +197,12 @@ class Runner:
                 callback(run_info)
 
         self.agent.env.close()  # Call explicitly to avoid exception on quit
-        send_input(self.agent.process, "quit")
-        # inspect = "\n".join(get_raw_output(self.agent.process))
-        # with open("inspect.txt", "w") as f:
-        #     f.write(inspect)
+
+        # export concepts
+        send_input(self.agent.process, "*concepts")
+        concepts = "\n".join(get_raw_output(self.agent.process))
+        with open("ona_concept_export.txt", "w") as f:
+            f.write(concepts)
 
     def demo_goal(self, plan: list[str]) -> None:
         """Demonstrate reaching the goal

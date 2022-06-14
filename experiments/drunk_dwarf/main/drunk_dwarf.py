@@ -119,10 +119,8 @@ if __name__ == "__main__":
 
         def nep_run_callback(run_info: dict):
             neprun["train/avg_ep_reward"] = run_info["avg_ep_reward"]
-            neprun[
-                "train/avg_completion_rate"
-            ] = f"{run_info['avg_completion_rate']*100:.0f}%"
-            neprun["train/completed_rate"] = f"{run_info['completed_rate']*100:.0f}%"
+            neprun["train/avg_completion_rate"] = run_info["avg_completion_rate"]
+            neprun["train/completed_rate"] = run_info["completed_rate"]
 
         callbacks.append(("on_episode_end", nep_ep_callback))
         callbacks.append(("on_run_end", nep_run_callback))
