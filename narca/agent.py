@@ -1,13 +1,14 @@
 import subprocess
 from abc import ABCMeta, abstractmethod
 from time import sleep
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import gym
 from griddly.util.rllib.environment.level_generator import LevelGenerator
+from icecream import ic
 from tensorboardX import SummaryWriter
 
-from .nar import get_raw_output, send_input, setup_nars
+from .nar import get_output, get_raw_output, send_input, setup_nars
 from .narsese import Goal, nal_now
 from .utils import NARS_PATH
 
@@ -29,6 +30,10 @@ class Agent(metaclass=ABCMeta):
     def plan(self) -> list[list[int]]:
 
         return [[]]
+
+    @abstractmethod
+    def step(self):
+        raise NotImplementedError
 
 
 class NarsAgent(Agent, metaclass=ABCMeta):
@@ -80,11 +85,10 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         if self.background_knowledge is not None:
             for statement in self.background_knowledge:
                 send_input(self.process, statement)
+            send_input(self.process, "3")
 
         if main_goal is not None and goals is not None:
             self.setup_goals(main_goal, goals)
-
-        send_input(self.process, "3")
 
     def setup_goals(self, main_goal: Goal, goals: list[Goal]):
         self.main_goal = main_goal
@@ -95,10 +99,21 @@ class NarsAgent(Agent, metaclass=ABCMeta):
             if g.knowledge is not None:
                 for belief in g.knowledge:
                     send_input(self.process, belief)
+        send_input(self.process, "3")
 
     @abstractmethod
     def observe(self, complete: bool = False) -> None:
-        pass
+        raise NotImplementedError
+
+    @abstractmethod
+    def determine_actions(self, info: dict[str, Any]) -> list[list[int]]:
+        raise NotImplementedError
+
+    def load_concepts(self, concept_file: str):
+        """Load concepts from a file"""
+        with open(concept_file) as f:
+            for line in f:
+                send_input(self.process, line)
 
 
 class Runner:

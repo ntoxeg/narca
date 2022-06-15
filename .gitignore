@@ -74,3 +74,8 @@ runs/
 
 # Neptune.ai
 .neptune/
+
+# Concept files
+ona_concept_export.txt
+ona_concept_import.txt
+*_concepts*.txt
