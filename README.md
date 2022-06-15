@@ -18,3 +18,8 @@ and run TensorBoard to see performance metrics. TensorBoard run data gets saved 
 There is also Neptune.ai integration that you can use, you need to set `NEPTUNE_PROJECT` and `NEPTUNE_API_TOKEN`.
 
 Each Griddly environment has its own subdirectory, each has at least the `main` experiment - this is supposed to hold the currently established simplest best performing agent.
+
+### Notable experiments
+Besides the usual `main` experiments there are some interesting variations as follows:
+- `experiments/zelda/procgen`: uses a level generator that places a key and a door randomly around the level.
+- `experiments/drunk_dwarf/curriculum_learning`: tries to find out whether there is a measurable gain in learning efficiency with a curriculum learning setup.
