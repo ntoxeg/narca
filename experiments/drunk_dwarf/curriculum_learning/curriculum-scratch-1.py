@@ -20,9 +20,8 @@ logger = logging.getLogger("nars")
 NUM_EPISODES = 50
 MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Drunk-Dwarf-v0"
-MAIN_TAG = (
-    "curriculum-scratch-1"  # agent trained from scratch on a given difficulty level
-)
+# agent trained from scratch on a given difficulty level
+MAIN_TAG = "curriculum-scratch-1"
 DIFFICULTY_LEVEL = 1
 
 THINK_TICKS = 5

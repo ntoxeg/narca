@@ -24,6 +24,8 @@ MAIN_TAG = "curriculum-load-1"
 DIFFICULTY_LEVEL = 2
 
 THINK_TICKS = 5
+# the number of concepts imported by filtering top useful ones
+NUM_CONCEPTS = 10
 
 
 def key_check(_, info) -> bool:
@@ -61,9 +63,8 @@ if __name__ == "__main__":
         # f"<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
         # f"<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
     ]
-    background_knowledge = (
-        []
-    )  # background knowledge is empty because we will load concepts from a file
+    # background knowledge is empty because we will load concepts from a file
+    background_knowledge = None
 
     # goals stay the same
     key_goal_sym = "GOT_KEY"
@@ -108,7 +109,9 @@ if __name__ == "__main__":
     ]
 
     # we load the concepts from a file after the standard setup
-    agent.load_concepts("ona_concept_import.txt")
+    agent.load_concepts(
+        f"ona_drunk_dwarf_{DIFFICULTY_LEVEL-1}_concepts_{NUM_CONCEPTS}.txt"
+    )
     agent.setup_goals(COMPLETE_GOAL, goals)
     runner = Runner(agent)
 
@@ -117,6 +120,7 @@ if __name__ == "__main__":
         neprun["parameters"] = {
             "goals": [g.symbol for g in goals],
             "think_ticks": THINK_TICKS,
+            "num_concepts": NUM_CONCEPTS,
         }
 
         def nep_ep_callback(run_info: dict):

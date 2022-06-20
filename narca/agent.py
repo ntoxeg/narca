@@ -67,7 +67,6 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         process_cmd = [
             (NARS_PATH / "NAR").as_posix(),
             "shell",
-            "InspectionOnExit",
         ]
         self.process: subprocess.Popen = subprocess.Popen(
             process_cmd,
