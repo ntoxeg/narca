@@ -26,14 +26,23 @@ class Agent(metaclass=ABCMeta):
         else:
             self.env.reset(level_string=level_string)  # type: ignore
 
+    def step(self) -> tuple[Any, float, float, bool, Any]:
+        actions = self.plan()
+        obs = []
+        reward = 0.0
+        cumr = 0.0
+        done = False
+        info = None
+        for action in actions:
+            obs, reward, done, info = self.env.step(action)
+            cumr += reward
+
+        return obs, reward, cumr, done, info
+
     @abstractmethod
     def plan(self) -> list[list[int]]:
 
         return [[]]
-
-    @abstractmethod
-    def step(self):
-        raise NotImplementedError
 
 
 class NarsAgent(Agent, metaclass=ABCMeta):

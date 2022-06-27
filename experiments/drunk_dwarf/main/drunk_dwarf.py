@@ -21,7 +21,7 @@ NUM_EPISODES = 50
 MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Drunk-Dwarf-v0"
 MAIN_TAG = "main"
-DIFFICULTY_LEVEL = 2
+DIFFICULTY_LEVEL = 1
 
 THINK_TICKS = 5
 
@@ -111,6 +111,9 @@ if __name__ == "__main__":
         neprun["parameters"] = {
             "goals": [g.symbol for g in goals],
             "think_ticks": THINK_TICKS,
+            "view_radius": DrunkDwarfAgent.VIEW_RADIUS,
+            "num_episodes": NUM_EPISODES,
+            "max_iterations": MAX_ITERATIONS,
         }
 
         def nep_ep_callback(run_info: dict):

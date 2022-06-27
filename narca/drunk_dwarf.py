@@ -6,7 +6,7 @@ import gym
 import numpy as np
 from griddly.util.rllib.environment.level_generator import LevelGenerator
 
-from .agent import NarsAgent
+from .agent import Agent, NarsAgent
 from .astar import pathfind
 from .nar import *
 from .utils import *
@@ -332,19 +332,6 @@ class DrunkDwarfAgent(NarsAgent):
 
         return [[0, 0]]  # noop
 
-    def step(self):
-        actions = self.plan()
-        obs = []
-        reward = 0.0
-        cumr = 0.0
-        done = False
-        info = None
-        for action in actions:
-            obs, reward, done, info = self.env.step(action)
-            cumr += reward
-
-        return obs, reward, cumr, done, info
-
     def _pos_beliefs(
         self, avatar_loc: tuple[int, int], avatar_orient: str
     ) -> list[str]:
@@ -474,6 +461,19 @@ class DrunkDwarfAgent(NarsAgent):
         # sleep(1)
 
         send_input(self.process, "3")
+
+
+class DrunkDwarfRandom(Agent):
+    """An agent that chooses random actions"""
+
+    AVATAR_LABEL = "drunk_dwarf"
+    MAX_EP_REWARD = 3.0
+
+    def __init__(self, env: gym.Env):
+        super().__init__(env)
+
+    def plan(self) -> list[list[int]]:
+        return [self.env.action_space.sample()]
 
 
 def demo_reach_key(symbol: str, agent: DrunkDwarfAgent) -> None:
