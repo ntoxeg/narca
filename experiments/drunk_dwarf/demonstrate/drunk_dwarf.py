@@ -15,7 +15,7 @@ from narca.nar import *
 from narca.utils import *
 
 # setup a logger for nars output
-logging.basicConfig(filename="nars_zelda.log", filemode="w", level=logging.DEBUG)
+logging.basicConfig(filename="nars_drunk_dwarf.log", filemode="w", level=logging.DEBUG)
 logger = logging.getLogger("nars")
 
 NUM_EPISODES = 50
