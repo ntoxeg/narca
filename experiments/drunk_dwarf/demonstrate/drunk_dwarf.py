@@ -23,7 +23,7 @@ MAX_ITERATIONS = 100
 ENV_NAME = "GDY-Drunk-Dwarf-v0"
 DIFFICULTY_LEVEL = 1
 MAIN_TAG = "demonstrate"
-NUM_DEMOS = 50
+NUM_DEMOS = 10
 
 # with open("difficulty_settings.json") as f:
 #     difficulty_settings = json.load(f)
