@@ -41,8 +41,8 @@ The following are beliefs sent to the agent to inform it about what is happening
 - `{$objname} --> [rightward]. :|:` means that an object is in front of  the agent, but to the right of it.
 
 #### Distance
-- `({$objname} * $delta) --> [delta_forward]. :|:`, represents how many cells forward the agent has to travel to make one of its coordinates equal to the object's. `delta` is simply an integer.
-- `({$objname} * $delta) --> [delta_sideways]. :|:`, represents how many cells to the left or right the agent has to travel to make one of its coordinates equal to the object's. `delta` is 0 if the object is straight ahead, `L$distance` if the object is to the left, `R$distance` if the object is to the right.
+- `({$objname} * $delta) --> delta_forward. :|:`, represents how many cells forward the agent has to travel to make one of its coordinates equal to the object's. `delta` is simply an integer.
+- `({$objname} * $delta) --> delta_sideways. :|:`, represents how many cells to the left or right the agent has to travel to make one of its coordinates equal to the object's. `delta` is 0 if the object is straight ahead, `L$distance` if the object is to the left, `R$distance` if the object is to the right.
 
 
 ### Differential beliefs

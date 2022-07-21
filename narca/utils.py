@@ -197,8 +197,8 @@ def nal_distance(
                 dss = ds_str(ds)
 
     return [
-        nal_now(f"<({ext(obname)} * {df}) --> [delta_forward]>"),
-        nal_now(f"<({ext(obname)} * {dss}) --> [delta_sideways]>"),
+        nal_now(f"<({ext(obname)} * {df}) --> delta_forward>"),
+        nal_now(f"<({ext(obname)} * {dss}) --> delta_sideways>"),
     ]
 
 
