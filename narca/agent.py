@@ -53,6 +53,7 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         main_goal: Optional[Goal] = None,
         goals: Optional[list[Goal]] = None,
         think_ticks: int = 5,
+        view_radius: int = 1,
         background_knowledge: Optional[list[str]] = None,
     ):
         super().__init__(env)
@@ -61,6 +62,7 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         self.main_goal = main_goal
         self.goals = goals
         self.think_ticks = think_ticks
+        self.view_radius = view_radius
         self.background_knowledge = background_knowledge
 
         # ./NAR UDPNAR IP PORT  timestep(ns per cycle) printDerivations
@@ -123,6 +125,54 @@ class NarsAgent(Agent, metaclass=ABCMeta):
             for line in f:
                 send_input(self.process, line)
 
+    def process_goals(self, env_state: dict, info: dict) -> bool:
+        """Check for goal satisfaction and inform ONA
+
+        Returns True if the level got completed.
+        """
+
+        if self.goals is None:
+            return False
+        complete = False
+
+        satisfied_goals = [g.satisfied(env_state, info) for g in self.goals]
+        for g, sat in zip(self.goals, satisfied_goals):
+            if sat:
+                print(f"{g.symbol} satisfied.")
+                send_input(self.process, nal_now(g.symbol))
+                get_raw_output(self.process)
+
+                info[f"{g.symbol}_satisfied"] = True
+
+                if g.symbol == "GOT_KEY":
+                    self.has_key = True
+
+                if g.symbol == "COMPLETE":
+                    complete = True
+            else:
+                info[f"{g.symbol}_satisfied"] = False
+
+        return complete
+
+    def step(self) -> tuple[Any, float, float, bool, Any]:
+        self.observe()
+        actions = self.plan()
+        obs = []
+        reward = 0.0
+        cumr = 0.0
+        done = False
+        info = None
+        for action in actions:
+            obs, reward, done, info = self.env.step(action)
+            cumr += reward
+            env_state = self.env.get_state()  # type: ignore
+            env_state["reward"] = reward
+            self.process_goals(env_state, info)
+
+        # Introduce a delay after sending all observation and goal-related statements.
+        send_input(self.process, "3")
+        return obs, reward, cumr, done, info
+
 
 class Runner:
     """Functionality for running agent interaction episodes"""
@@ -154,8 +204,8 @@ class Runner:
             lvl_str = self.levelgen.generate() if self.levelgen is not None else None
             self.agent.reset(level_string=lvl_str)
 
-            for i in range(max_iterations):
-                self.agent.observe(complete=True)
+            for _ in range(max_iterations):
+                # self.agent.observe(complete=True)
 
                 _, reward, cumr, done, info = self.agent.step()
                 run_info["episode_reward"] += cumr
@@ -163,20 +213,8 @@ class Runner:
                 env_state = self.agent.env.get_state()  # type: ignore
                 env_state["reward"] = reward
 
-                satisfied_goals = [
-                    g.satisfied(env_state, info) for g in self.agent.goals
-                ]
-                for g, sat in zip(self.agent.goals, satisfied_goals):
-                    if sat:
-                        print(f"{g.symbol} satisfied.")
-                        send_input(self.agent.process, nal_now(g.symbol))
-                        get_raw_output(self.agent.process)
-
-                        if g.symbol == "GOT_KEY":
-                            self.agent.has_key = True
-
-                        if g.symbol == "COMPLETE":
-                            run_info["num_complete"] += 1
+                if info["COMPLETE_satisfied"]:
+                    run_info["num_complete"] += 1
 
                 self.agent.env.render(observer="global")  # type: ignore # Renders the entire environment
 
@@ -243,20 +281,6 @@ class Runner:
                 {"executions": [{"operator": action, "arguments": []}]}
             )
             _, reward, done, info = self.agent.env.step(gym_actions[0])
-            self.agent.observe()
-
-            env_state: dict[str, Any] = self.agent.env.get_state()  # type: ignore
-            env_state["reward"] = reward
-
-            satisfied_goals = [g.satisfied(env_state, info) for g in self.agent.goals]
-            for g, sat in zip(self.agent.goals, satisfied_goals):
-                if sat:
-                    print(f"{g.symbol} satisfied.")
-                    send_input(self.agent.process, nal_now(g.symbol))
-                    get_raw_output(self.agent.process)
-
-                    if g.symbol == "GOT_KEY":
-                        self.agent.has_key = True
 
             self.agent.env.render(observer="global")  # type: ignore
             sleep(1)

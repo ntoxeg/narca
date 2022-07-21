@@ -12,217 +12,6 @@ from .nar import *
 from .utils import *
 
 
-class ZeldaLevelGenerator(LevelGenerator):
-    KEY = "+"
-    GOAL = "g"
-
-    AGENT = "A"
-
-    WALL = "w"
-    SPIDER = "3"
-
-    def __init__(self, config):
-        super().__init__(config)
-        self._width = config.get("width", 10)
-        self._height = config.get("height", 10)
-        self._p_key = config.get("p_key", 0.1)
-        self._max_goals = config.get("max_goals", 3)
-        self._p_spider = config.get("p_spider", 0.1)
-        self._max_spiders = config.get("max_spiders", 3)
-
-    def _place_walls(self, map_: np.chararray) -> np.chararray:
-
-        # top/bottom wall
-        wall_y = np.array([0, self._height - 1])
-        map_[:, wall_y] = ZeldaLevelGenerator.WALL
-
-        # left/right wall
-        wall_x = np.array([0, self._width - 1])
-        map_[wall_x, :] = ZeldaLevelGenerator.WALL
-
-        return map_
-
-    def _place_keys_goals(
-        self,
-        map_: np.chararray,
-        possible_locations: list[tuple[int, int]],
-        probability: float,
-        key_char: str,
-        goal_char: str,
-        max_keys: int,
-    ) -> tuple[np.chararray, list[tuple[int, int]]]:
-        # TODO: turn into a generic method
-        for _ in range(max_keys):
-            if np.random.random() < probability:
-                key_location_idx = np.random.choice(len(possible_locations))
-                key_location = possible_locations.pop(key_location_idx)
-                map_[key_location[0], key_location[1]] = key_char
-
-                goal_location_idx = np.random.choice(len(possible_locations))
-                goal_location = possible_locations.pop(goal_location_idx)
-                map_[goal_location[0], goal_location[1]] = goal_char
-
-        return map_, possible_locations
-
-    def _place_spiders(
-        self, map_: np.chararray, possible_locations: list[tuple[int, int]]
-    ) -> tuple[np.chararray, list[tuple[int, int]]]:
-        for _ in range(self._max_spiders):
-            if np.random.random() < self._p_spider:
-                spider_location_idx = np.random.choice(len(possible_locations))
-                spider_location = possible_locations.pop(spider_location_idx)
-                map_[
-                    spider_location[0], spider_location[1]
-                ] = ZeldaLevelGenerator.SPIDER
-
-        return map_, possible_locations
-
-    def _level_string(self, map_: np.chararray) -> str:
-        level_string = ""
-        for h in range(0, self._height):
-            for w in range(0, self._width):
-                level_string += map_[w, h].decode().ljust(4)
-            level_string += "\n"
-
-        return level_string
-
-    def _rotation_transition(self, orient: str, action: str) -> str:
-        match action:
-            case "^rotate_left":
-                match orient:
-                    case "UP":
-                        return "LEFT"
-                    case "RIGHT":
-                        return "UP"
-                    case "DOWN":
-                        return "RIGHT"
-                    case "LEFT":
-                        return "DOWN"
-            case "^rotate_right":
-                match orient:
-                    case "UP":
-                        return "RIGHT"
-                    case "RIGHT":
-                        return "DOWN"
-                    case "DOWN":
-                        return "LEFT"
-                    case "LEFT":
-                        return "UP"
-
-        ic("Warning: invalid action/orientation combination.")
-        return orient
-
-    def _action_transition(
-        self, state: tuple[int, int, str], action: str
-    ) -> tuple[int, int, str]:
-        # state is (x, y, orientation)
-        match action:
-            case "^move_forwards":
-                match state[2]:
-                    case "UP":
-                        return state[0], state[1] - 1, state[2]
-                    case "RIGHT":
-                        return state[0] + 1, state[1], state[2]
-                    case "DOWN":
-                        return state[0], state[1] + 1, state[2]
-                    case "LEFT":
-                        return state[0] - 1, state[1], state[2]
-            case "^move_backwards":
-                match state[2]:
-                    case "UP":
-                        return state[0], state[1] + 1, state[2]
-                    case "RIGHT":
-                        return state[0] - 1, state[1], state[2]
-                    case "DOWN":
-                        return state[0], state[1] - 1, state[2]
-                    case "LEFT":
-                        return state[0] + 1, state[1], state[2]
-            case "^rotate_left":
-                return state[0], state[1], self._rotation_transition(state[2], action)
-            case "^rotate_right":
-                return state[0], state[1], self._rotation_transition(state[2], action)
-
-        return state
-
-    def generate(self) -> str:
-        map_ = np.chararray((self._width, self._height), itemsize=2)
-        map_[:] = "."
-
-        # Generate walls
-        map_ = self._place_walls(map_)
-
-        # all possible locations
-        possible_locations = [
-            (w, h)
-            for h in range(1, self._height - 1)
-            for w in range(1, self._width - 1)
-        ]
-
-        # Place keys and goals
-        map_, possible_locations = self._place_keys_goals(
-            map_,
-            possible_locations,
-            self._p_key,
-            ZeldaLevelGenerator.KEY,
-            ZeldaLevelGenerator.GOAL,
-            self._max_goals,
-        )
-
-        # Place spiders
-        map_, possible_locations = self._place_spiders(map_, possible_locations)
-
-        # Place Agent
-        agent_location_idx = np.random.choice(len(possible_locations))
-        agent_location = possible_locations[agent_location_idx]
-        map_[agent_location[0], agent_location[1]] = ZeldaLevelGenerator.AGENT
-
-        return self._level_string(map_)
-
-    def generate_for_plan(self, plan: list[str]) -> str:
-        map_ = np.chararray((self._width, self._height), itemsize=2)
-        map_[:] = "."
-
-        # Generate walls
-        map_ = self._place_walls(map_)
-
-        # all possible locations
-        possible_locations = [
-            (w, h)
-            for h in range(1, self._height - 1)
-            for w in range(1, self._width - 1)
-        ]
-
-        # Place spiders
-        map_, possible_locations = self._place_spiders(map_, possible_locations)
-
-        # Restrict locations based on the length of the plan
-        possible_locations = [
-            (x, y)
-            for x, y in possible_locations
-            if x in range(1 + len(plan), self._width - 1 - len(plan))
-            and y in range(1 + len(plan), self._height - 1 - len(plan))
-        ]
-
-        # Place Agent
-        agent_location_idx = np.random.choice(len(possible_locations))
-        agent_location = possible_locations[agent_location_idx]
-        map_[agent_location[0], agent_location[1]] = ZeldaLevelGenerator.AGENT
-
-        # Given the list of actions, place the key and goal
-        agent_state = (agent_location[0], agent_location[1], "UP")
-
-        actions_pre, actions_post = plan[: len(plan) // 2], plan[len(plan) // 2 :]
-        for action in actions_pre:
-            agent_state = self._action_transition(agent_state, action)
-        map_[agent_state[0], agent_state[1]] = ZeldaLevelGenerator.KEY
-
-        for action in actions_post:
-            agent_state = self._action_transition(agent_state, action)
-        map_[agent_state[0], agent_state[1]] = ZeldaLevelGenerator.GOAL
-
-        return self._level_string(map_)
-
-
 class DrunkDwarfAgent(NarsAgent):
     """Agent for Drunk Dwarf"""
 
@@ -231,7 +20,6 @@ class DrunkDwarfAgent(NarsAgent):
         "^move_forwards",
         "^rotate_right",
     ]
-    VIEW_RADIUS = 1
     AVATAR_LABEL = "drunk_dwarf"
     MAX_EP_REWARD = 3.0
 
@@ -241,6 +29,7 @@ class DrunkDwarfAgent(NarsAgent):
         main_goal: Optional[Goal] = None,
         goals: Optional[list[Goal]] = None,
         think_ticks: int = 5,
+        view_radius: int = 1,
         background_knowledge=None,
     ):
         super().__init__(
@@ -249,6 +38,7 @@ class DrunkDwarfAgent(NarsAgent):
             main_goal,
             goals,
             think_ticks,
+            view_radius,
             background_knowledge,
         )
 
@@ -416,8 +206,7 @@ class DrunkDwarfAgent(NarsAgent):
                 f"{obj['Name']}{i+1}": obj["Location"]
                 for i, obj in enumerate(env_state["Objects"])
                 if obj["Name"] == typ
-                and manhattan_distance(avatar_loc, obj["Location"])
-                <= __class__.VIEW_RADIUS
+                and manhattan_distance(avatar_loc, obj["Location"]) <= self.view_radius
                 and in_front(avatar_orient, avatar_loc, obj["Location"])
             }
             for typ in obtypes
@@ -459,8 +248,6 @@ class DrunkDwarfAgent(NarsAgent):
         # ic("Sent diff beliefs:", diff_beliefs)
         ic("Total beliefs sent:", num_sent_beliefs)
         # sleep(1)
-
-        send_input(self.process, "3")
 
 
 class DrunkDwarfRandom(Agent):

@@ -24,6 +24,7 @@ MAIN_TAG = "main"
 DIFFICULTY_LEVEL = 1
 
 THINK_TICKS = 5
+VIEW_RADIUS = 1
 
 
 def key_check(_, info) -> bool:
@@ -77,6 +78,7 @@ if __name__ == "__main__":
     agent = DrunkDwarfAgent(
         env,
         think_ticks=THINK_TICKS,
+        view_radius=VIEW_RADIUS,
         background_knowledge=background_knowledge,
     )
 
@@ -111,7 +113,7 @@ if __name__ == "__main__":
         neprun["parameters"] = {
             "goals": [g.symbol for g in goals],
             "think_ticks": THINK_TICKS,
-            "view_radius": DrunkDwarfAgent.VIEW_RADIUS,
+            "view_radius": agent.view_radius,
             "num_episodes": NUM_EPISODES,
             "max_iterations": MAX_ITERATIONS,
         }
