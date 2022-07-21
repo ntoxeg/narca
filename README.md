@@ -8,9 +8,9 @@ variable to specify where it is built.
 Dependencies are listed in the `env.yml` file, that can be used to create a Conda environment.
 `lock.yml` is a lock-file that you can use to make a reproducible environment, Conda might fail to create it though. For standard virtual environments you just need to use `pip`.
 
-Install in editable mode to your environment: `pip install -e .`
+[Griddly](https://github.com/Bam4d/Griddly) requires to install Vulkan SDK, refer to its README.
 
-Current caveat: Griddly has to be installed from source for Python 3.10. You have to do this manually.
+Install in editable mode to your environment: `pip install -e .`
 
 ## Running
 There are multiple experiments under the `experiments` directory. Each one can be launched with `python <path to the script>`. You can observe the rendered environment
