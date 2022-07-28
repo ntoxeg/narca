@@ -7,6 +7,7 @@ variable to specify where it is built.
 
 Dependencies are listed in the `env.yml` file, that can be used to create a Conda environment.
 `lock.yml` is a lock-file that you can use to make a reproducible environment, Conda might fail to create it though. For standard virtual environments you just need to use `pip`.
+You can also use Poetry, via `poetry install`, `poetry shell` will open a shell with the virtual environment activated.
 
 [Griddly](https://github.com/Bam4d/Griddly) requires to install Vulkan SDK, refer to its README.
 
