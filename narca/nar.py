@@ -103,13 +103,17 @@ def setup_nars_ops(
 def setup_nars(
     process: subprocess.Popen,
     ops: list[str],
-    motorbabbling: float = 0.05,
+    motor_babbling: Optional[float] = None,
     babblingops: Optional[int] = None,
     volume: Optional[int] = None,
+    decision_threshold: Optional[float] = None,
 ):
     """Send NARS settings"""
     send_input(process, "*reset")
     setup_nars_ops(process, ops, babblingops=babblingops)
-    send_input(process, f"*motorbabbling={motorbabbling}")
+    if motor_babbling is not None:
+        send_input(process, f"*motorbabbling={motor_babbling}")
     if volume is not None:
         send_input(process, f"*volume={volume}")
+    if decision_threshold is not None:
+        send_input(process, f"*decisionthreshold={decision_threshold}")

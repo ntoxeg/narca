@@ -55,6 +55,8 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         think_ticks: int = 5,
         view_radius: int = 1,
         background_knowledge: Optional[list[str]] = None,
+        motor_babbling: Optional[float] = None,
+        decision_threshold: Optional[float] = None,
     ):
         super().__init__(env)
 
@@ -88,7 +90,12 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         # sleep(3)  # wait for UDPNAR to make sure early commands don't get lost
 
         # setup NARS
-        setup_nars(self.process, self.operations)
+        setup_nars(
+            self.process,
+            self.operations,
+            motor_babbling=motor_babbling,
+            decision_threshold=decision_threshold,
+        )
         # logger.info("\n".join(get_raw_output(self.process)))
 
         # send background knowledge

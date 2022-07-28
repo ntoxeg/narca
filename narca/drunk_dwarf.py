@@ -31,6 +31,8 @@ class DrunkDwarfAgent(NarsAgent):
         think_ticks: int = 5,
         view_radius: int = 1,
         background_knowledge=None,
+        motor_babbling: Optional[float] = None,
+        decision_threshold: Optional[float] = None,
     ):
         super().__init__(
             env,
@@ -40,6 +42,8 @@ class DrunkDwarfAgent(NarsAgent):
             think_ticks,
             view_radius,
             background_knowledge,
+            motor_babbling,
+            decision_threshold,
         )
 
         # init agent's state

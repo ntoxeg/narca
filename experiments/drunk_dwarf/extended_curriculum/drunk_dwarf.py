@@ -26,6 +26,8 @@ DIFFICULTY_LEVEL = 1
 
 THINK_TICKS = 5
 VIEW_RADIUS = 1
+MOTOR_BABBLING = 0.2
+DECISION_THRESHOLD = 0.7
 
 
 def key_check(_, info) -> bool:
@@ -70,33 +72,37 @@ if __name__ == "__main__":
     ]
     background_knowledge = rel_pos_knowledge
 
-    key_goal_sym = "GOT_KEY"
-    reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
-    door_goal_sym = "DOOR_OPENED"
-    open_door = [
-        f"<({key_goal_sym} &/ <{ext('door')} --> [reached]>) =/> {door_goal_sym}>."
-    ]
+    # key_goal_sym = "GOT_KEY"
+    # reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
+    # door_goal_sym = "DOOR_OPENED"
+    # open_door = [
+    #     f"<({key_goal_sym} &/ <{ext('door')} --> [reached]>) =/> {door_goal_sym}>."
+    # ]
+    # complete_goal_sym = "COMPLETE"
+    # complete_goal = [
+    #     f"<({door_goal_sym} &/ <{ext('coffin_bed')} --> [reached]>) =/> {complete_goal_sym}>."
+    # ]
     complete_goal_sym = "COMPLETE"
-    complete_goal = [
-        f"<({door_goal_sym} &/ <{ext('coffin_bed')} --> [reached]>) =/> {complete_goal_sym}>."
-    ]
+    complete_goal = [f"<<{ext('coffin_bed')} --> [reached]> =/> {complete_goal_sym}>."]
 
     agent = DrunkDwarfAgent(
         env,
         think_ticks=THINK_TICKS,
         view_radius=VIEW_RADIUS,
         background_knowledge=background_knowledge,
+        motor_babbling=MOTOR_BABBLING,
+        decision_threshold=DECISION_THRESHOLD,
     )
 
-    KEY_GOAL = Goal(
-        key_goal_sym, partial(object_reached, agent, "stumble", "key"), reach_key
-    )
-    DOOR_GOAL = Goal(
-        door_goal_sym,
-        lambda evst, info: agent.has_key
-        and object_reached(agent, "stumble", "door", evst, info),
-        open_door,
-    )
+    # KEY_GOAL = Goal(
+    #     key_goal_sym, partial(object_reached, agent, "stumble", "key"), reach_key
+    # )
+    # DOOR_GOAL = Goal(
+    #     door_goal_sym,
+    #     lambda evst, info: agent.has_key
+    #     and object_reached(agent, "stumble", "door", evst, info),
+    #     open_door,
+    # )
     COMPLETE_GOAL = Goal(
         complete_goal_sym,
         partial(object_reached, agent, "stumble", "coffin_bed"),
@@ -105,8 +111,8 @@ if __name__ == "__main__":
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
 
     goals = [
-        KEY_GOAL,
-        DOOR_GOAL,
+        # KEY_GOAL,
+        # DOOR_GOAL,
         COMPLETE_GOAL,
         REWARD_GOAL,
     ]
@@ -122,6 +128,8 @@ if __name__ == "__main__":
             "view_radius": agent.view_radius,
             "num_episodes": NUM_EPISODES,
             "max_iterations": MAX_ITERATIONS,
+            "motor_babbling": MOTOR_BABBLING,
+            "decision_threshold": DECISION_THRESHOLD,
         }
 
         def nep_ep_callback(run_info: dict):
