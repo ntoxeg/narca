@@ -215,12 +215,11 @@ class DrunkDwarfAgent(NarsAgent):
         # search for high-importance objects that are not in the current view
         important_types = ["key", "door", "coffin_bed"]
         for typ in important_types:
-            if typ not in self.object_info["current"]:
-                self.object_info["current"][typ] = {
-                    f"{obj['Name']}{i+1}": obj["Location"]
-                    for i, obj in enumerate(env_state["Objects"])
-                    if obj["Name"] == typ
-                }
+            self.object_info["current"][typ] = {
+                f"{obj['Name']}{i+1}": obj["Location"]
+                for i, obj in enumerate(env_state["Objects"])
+                if obj["Name"] == typ
+            }
 
         # HACK: for singletons change the name to type's name
         for typ in self.object_info["current"]:
