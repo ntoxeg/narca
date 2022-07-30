@@ -25,6 +25,8 @@ DIFFICULTY_LEVEL = 1
 
 THINK_TICKS = 5
 VIEW_RADIUS = 1
+MOTOR_BABBLING = 0.2
+DECISION_THRESHOLD = 0.6
 
 
 def key_check(_, info) -> bool:
@@ -80,6 +82,8 @@ if __name__ == "__main__":
         think_ticks=THINK_TICKS,
         view_radius=VIEW_RADIUS,
         background_knowledge=background_knowledge,
+        motor_babbling=MOTOR_BABBLING,
+        decision_threshold=DECISION_THRESHOLD,
     )
 
     KEY_GOAL = Goal(
@@ -116,6 +120,8 @@ if __name__ == "__main__":
             "view_radius": agent.view_radius,
             "num_episodes": NUM_EPISODES,
             "max_iterations": MAX_ITERATIONS,
+            "motor_babbling": MOTOR_BABBLING,
+            "decision_threshold": DECISION_THRESHOLD,
         }
 
         def nep_ep_callback(run_info: dict):
