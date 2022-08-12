@@ -4,6 +4,7 @@ from time import sleep
 from typing import Any, Callable, Optional
 
 import gym
+from griddly import gd
 from griddly.util.rllib.environment.level_generator import LevelGenerator
 from icecream import ic
 from tensorboardX import SummaryWriter
@@ -254,6 +255,115 @@ class Runner:
             run_info["avg_ep_reward"] / self.agent.__class__.MAX_EP_REWARD
         )
         run_info["completed_rate"] = run_info["num_complete"] / num_episodes
+        print(
+            f"Average total reward per episode: {run_info['avg_ep_reward']}.",
+            f"Average completion rate: {run_info['avg_completion_rate']*100:.0f}%.",
+            f"Completed rate: {run_info['completed_rate']*100:.0f}%.",
+        )
+
+        for trigger, callback in callbacks:
+            if trigger == "on_run_end":
+                callback(run_info)
+
+        self.agent.env.close()  # Call explicitly to avoid exception on quit
+
+        # export concepts
+        send_input(self.agent.process, "*concepts")
+        concepts = "\n".join(get_raw_output(self.agent.process))
+        with open("ona_concept_export.txt", "w") as f:
+            f.write(concepts)
+
+    def run_curriculum(
+        self,
+        env_name: str,
+        max_difficulty: int,
+        num_episodes: int,
+        max_iterations: int,
+        log_tb: bool = False,
+        tb_comment_suffix: str = "",
+        callbacks: list[tuple[str, Callable]] = [],
+    ):
+        """Runs the agent's curriculum loop
+
+        Args:
+            env_name (str): The name of the environment.
+            max_difficulty (int): The maximum difficulty of the environment.
+            num_episodes (int): Number of episodes to run.
+            max_iterations (int): Maximum number of iterations to run.
+            log_tb (bool): log to TensorBoard or not.
+            tb_comment_suffix
+            callbacks (list[tuple[str, Callable]]): a list of callbacks to run.
+        """
+        run_info = dict(total_reward=0.0, episode_reward=0.0, num_complete=0)
+        done = False
+        tb_writer = (
+            SummaryWriter(comment=f"-ona-{tb_comment_suffix}") if log_tb else None
+        )
+
+        for difficulty in range(max_difficulty):
+            env = gym.make(
+                env_name,
+                player_observer_type=gd.ObserverType.VECTOR,
+                level=difficulty,
+                new_step_api=True,
+            )
+            env.enable_history(True)  # type: ignore
+            self.agent.env = env
+
+            for episode in range(num_episodes):
+                lvl_str = (
+                    self.levelgen.generate() if self.levelgen is not None else None
+                )
+                self.agent.reset(level_string=lvl_str)
+
+                for _ in range(max_iterations):
+                    # self.agent.observe(complete=True)
+
+                    _, reward, cumr, done, info = self.agent.step()
+                    run_info["episode_reward"] += cumr
+
+                    env_state = self.agent.env.get_state()  # type: ignore
+                    env_state["reward"] = reward
+
+                    if info["COMPLETE_satisfied"]:
+                        run_info["num_complete"] += 1
+
+                    self.agent.env.render(observer="global")  # type: ignore # Renders the entire environment
+
+                    if done:
+                        break
+
+                print(
+                    f"Episode {episode+1} finished with reward {run_info['episode_reward']}."
+                )
+                run_info["total_reward"] += run_info["episode_reward"]
+
+                # Performance logging subroutines
+                for trigger, callback in callbacks:
+                    if trigger == "on_episode_end":
+                        callback(run_info)
+                if tb_writer is not None:
+                    tb_writer.add_scalar(
+                        "train/episode_reward", run_info["episode_reward"], episode
+                    )
+                    tb_writer.add_scalar(
+                        "train/total_reward", run_info["total_reward"], episode
+                    )
+
+                # Post-episode wrap up
+                run_info["episode_reward"] = 0.0
+
+        # Final wrap up
+        # TODO: make proper distinction between difficulty levels.
+        run_info["avg_ep_reward"] = run_info["total_reward"] / (
+            num_episodes * max_difficulty
+        )
+        run_info["avg_completion_rate"] = (
+            run_info["avg_ep_reward"] / self.agent.__class__.MAX_EP_REWARD
+        )
+        run_info["completed_rate"] = run_info["num_complete"] / (
+            num_episodes * max_difficulty
+        )
         print(
             f"Average total reward per episode: {run_info['avg_ep_reward']}.",
             f"Average completion rate: {run_info['avg_completion_rate']*100:.0f}%.",

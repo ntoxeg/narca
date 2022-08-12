@@ -22,12 +22,12 @@ MAX_ITERATIONS = 100
 ENV_NAME_STEM = "DrunkDwarfExtended"
 ENV_NAME = f"GDY-{ENV_NAME_STEM}-v0"
 MAIN_TAG = "extended_curriculum"
-DIFFICULTY_LEVEL = 1
+DIFFICULTY_LEVEL = 5
 
-THINK_TICKS = 5
+THINK_TICKS = 3
 VIEW_RADIUS = 1
 MOTOR_BABBLING = 0.2
-DECISION_THRESHOLD = 0.7
+DECISION_THRESHOLD = 0.55
 
 
 def key_check(_, info) -> bool:
@@ -54,14 +54,6 @@ if __name__ == "__main__":
     except KeyError:
         neprun = None
 
-    env = gym.make(
-        ENV_NAME,
-        player_observer_type=gd.ObserverType.VECTOR,
-        level=DIFFICULTY_LEVEL - 1,
-        new_step_api=True,
-    )
-    env.enable_history(True)  # type: ignore
-
     reach_object_knowledge = [
         f"<(<($obj * #location) --> at> &/ <({ext('SELF')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
     ]
@@ -72,18 +64,27 @@ if __name__ == "__main__":
     ]
     background_knowledge = rel_pos_knowledge
 
-    # key_goal_sym = "GOT_KEY"
-    # reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
-    # door_goal_sym = "DOOR_OPENED"
-    # open_door = [
-    #     f"<({key_goal_sym} &/ <{ext('door')} --> [reached]>) =/> {door_goal_sym}>."
-    # ]
-    # complete_goal_sym = "COMPLETE"
-    # complete_goal = [
-    #     f"<({door_goal_sym} &/ <{ext('coffin_bed')} --> [reached]>) =/> {complete_goal_sym}>."
-    # ]
+    key_goal_sym = "GOT_KEY"
+    reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
+    door_goal_sym = "DOOR_OPENED"
+    open_door = [
+        f"<({key_goal_sym} &/ <{ext('door')} --> [reached]>) =/> {door_goal_sym}>."
+    ]
+    complete_goal_sym = "COMPLETE"
+    complete_goal = [
+        f"<({door_goal_sym} &/ <{ext('coffin_bed')} --> [reached]>) =/> {complete_goal_sym}>."
+    ]
     complete_goal_sym = "COMPLETE"
     complete_goal = [f"<<{ext('coffin_bed')} --> [reached]> =/> {complete_goal_sym}>."]
+
+    # TODO: add the option to defer environment initialization.
+    env = gym.make(
+        ENV_NAME,
+        player_observer_type=gd.ObserverType.VECTOR,
+        level=0,
+        new_step_api=True,
+    )
+    env.enable_history(True)  # type: ignore
 
     agent = DrunkDwarfAgent(
         env,
@@ -94,15 +95,15 @@ if __name__ == "__main__":
         decision_threshold=DECISION_THRESHOLD,
     )
 
-    # KEY_GOAL = Goal(
-    #     key_goal_sym, partial(object_reached, agent, "stumble", "key"), reach_key
-    # )
-    # DOOR_GOAL = Goal(
-    #     door_goal_sym,
-    #     lambda evst, info: agent.has_key
-    #     and object_reached(agent, "stumble", "door", evst, info),
-    #     open_door,
-    # )
+    KEY_GOAL = Goal(
+        key_goal_sym, partial(object_reached, agent, "stumble", "key"), reach_key
+    )
+    DOOR_GOAL = Goal(
+        door_goal_sym,
+        lambda evst, info: agent.has_key
+        and object_reached(agent, "stumble", "door", evst, info),
+        open_door,
+    )
     COMPLETE_GOAL = Goal(
         complete_goal_sym,
         partial(object_reached, agent, "stumble", "coffin_bed"),
@@ -111,8 +112,8 @@ if __name__ == "__main__":
     REWARD_GOAL = Goal("GOT_REWARD", got_rewarded)
 
     goals = [
-        # KEY_GOAL,
-        # DOOR_GOAL,
+        KEY_GOAL,
+        DOOR_GOAL,
         COMPLETE_GOAL,
         REWARD_GOAL,
     ]
@@ -145,7 +146,9 @@ if __name__ == "__main__":
         callbacks.append(("on_run_end", nep_run_callback))
 
     # Run the agent
-    runner.run(
+    runner.run_curriculum(
+        ENV_NAME,
+        DIFFICULTY_LEVEL,
         NUM_EPISODES,
         MAX_ITERATIONS,
         log_tb=True,
