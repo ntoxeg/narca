@@ -137,12 +137,24 @@ if __name__ == "__main__":
             neprun["train/episode_reward"].log(run_info["episode_reward"])
             neprun["train/total_reward"].log(run_info["total_reward"])
 
+        def nep_level_callback(run_info: dict):
+            neprun[f"train/{run_info['level']}/avg_ep_reward"] = run_info[
+                f"{run_info['level']}/avg_ep_reward"
+            ]
+            neprun[f"train/{run_info['level']}/avg_completion_rate"] = run_info[
+                f"{run_info['level']}/avg_completion_rate"
+            ]
+            neprun[f"train/{run_info['level']}/completed_rate"] = run_info[
+                f"{run_info['level']}/completed_rate"
+            ]
+
         def nep_run_callback(run_info: dict):
             neprun["train/avg_ep_reward"] = run_info["avg_ep_reward"]
             neprun["train/avg_completion_rate"] = run_info["avg_completion_rate"]
             neprun["train/completed_rate"] = run_info["completed_rate"]
 
         callbacks.append(("on_episode_end", nep_ep_callback))
+        callbacks.append(("on_level_end", nep_level_callback))
         callbacks.append(("on_run_end", nep_run_callback))
 
     # Run the agent

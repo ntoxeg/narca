@@ -309,6 +309,10 @@ class Runner:
             )
             env.enable_history(True)  # type: ignore
             self.agent.env = env
+            run_info["level"] = difficulty + 1
+            run_info[f"{difficulty + 1}/total_reward"] = 0.0
+            run_info[f"{difficulty + 1}/episode_reward"] = 0.0
+            run_info[f"{difficulty + 1}/num_complete"] = 0
 
             for episode in range(num_episodes):
                 lvl_str = (
@@ -321,12 +325,14 @@ class Runner:
 
                     _, reward, cumr, done, info = self.agent.step()
                     run_info["episode_reward"] += cumr
+                    run_info[f"{run_info['level']}/episode_reward"] += cumr
 
                     env_state = self.agent.env.get_state()  # type: ignore
                     env_state["reward"] = reward
 
                     if info["COMPLETE_satisfied"]:
                         run_info["num_complete"] += 1
+                        run_info[f"{run_info['level']}/num_complete"] += 1
 
                     self.agent.env.render(observer="global")  # type: ignore # Renders the entire environment
 
@@ -337,6 +343,9 @@ class Runner:
                     f"Episode {episode+1} finished with reward {run_info['episode_reward']}."
                 )
                 run_info["total_reward"] += run_info["episode_reward"]
+                run_info[f"{run_info['level']}/total_reward"] += run_info[
+                    f"{run_info['level']}/episode_reward"
+                ]
 
                 # Performance logging subroutines
                 for trigger, callback in callbacks:
@@ -353,8 +362,23 @@ class Runner:
                 # Post-episode wrap up
                 run_info["episode_reward"] = 0.0
 
+            # Post-level procedure
+            run_info[f"{run_info['level']}/avg_ep_reward"] = (
+                run_info[f"{run_info['level']}/total_reward"] / num_episodes
+            )
+            run_info[f"{run_info['level']}/avg_completion_rate"] = (
+                run_info[f"{run_info['level']}/avg_ep_reward"]
+                / self.agent.__class__.MAX_EP_REWARD
+            )
+            run_info[f"{run_info['level']}/completed_rate"] = (
+                run_info[f"{run_info['level']}/num_complete"] / num_episodes
+            )
+
+            for trigger, callback in callbacks:
+                if trigger == "on_level_end":
+                    callback(run_info)
+
         # Final wrap up
-        # TODO: make proper distinction between difficulty levels.
         run_info["avg_ep_reward"] = run_info["total_reward"] / (
             num_episodes * max_difficulty
         )
