@@ -4,6 +4,7 @@ from time import sleep
 from typing import Any, Callable, Optional
 
 import gym
+import numpy as np
 from griddly import gd
 from griddly.util.rllib.environment.level_generator import LevelGenerator
 from icecream import ic
@@ -20,12 +21,13 @@ class Agent(metaclass=ABCMeta):
 
     def __init__(self, env: gym.Env):
         self.env = env
+        self.obj_names: list[str] = env.game.get_object_names()  # type: ignore
 
     def reset(self, level_string: Optional[str] = None):
         if level_string is None:
-            self.env.reset()
+            return self.env.reset()
         else:
-            self.env.reset(level_string=level_string)  # type: ignore
+            return self.env.reset(level_string=level_string)  # type: ignore
 
     def step(self) -> tuple[Any, float, float, bool, Any]:
         actions = self.plan()
@@ -120,7 +122,7 @@ class NarsAgent(Agent, metaclass=ABCMeta):
         send_input(self.process, "3")
 
     @abstractmethod
-    def observe(self, complete: bool = False) -> None:
+    def observe(self, observation: np.ndarray) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -162,8 +164,8 @@ class NarsAgent(Agent, metaclass=ABCMeta):
 
         return complete
 
-    def step(self) -> tuple[Any, float, float, bool, Any]:
-        self.observe()
+    def step(self, observation: np.ndarray) -> tuple[Any, float, float, bool, Any]:
+        self.observe(observation)
         actions = self.plan()
         obs = []
         reward = 0.0
@@ -210,12 +212,10 @@ class Runner:
 
         for episode in range(num_episodes):
             lvl_str = self.levelgen.generate() if self.levelgen is not None else None
-            self.agent.reset(level_string=lvl_str)
+            obs = self.agent.reset(level_string=lvl_str)
 
             for _ in range(max_iterations):
-                # self.agent.observe(complete=True)
-
-                _, reward, cumr, done, info = self.agent.step()
+                obs, reward, cumr, done, info = self.agent.step(obs)
                 run_info["episode_reward"] += cumr
 
                 env_state = self.agent.env.get_state()  # type: ignore
@@ -318,12 +318,10 @@ class Runner:
                 lvl_str = (
                     self.levelgen.generate() if self.levelgen is not None else None
                 )
-                self.agent.reset(level_string=lvl_str)
+                obs = self.agent.reset(level_string=lvl_str)
 
                 for _ in range(max_iterations):
-                    # self.agent.observe(complete=True)
-
-                    _, reward, cumr, done, info = self.agent.step()
+                    obs, reward, cumr, done, info = self.agent.step(obs)
                     run_info["episode_reward"] += cumr
                     run_info[f"{run_info['level']}/episode_reward"] += cumr
 

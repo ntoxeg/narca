@@ -51,7 +51,7 @@ class DrunkDwarfAgent(NarsAgent):
         self.object_info = {"current": {}, "previous": {}}
 
     def reset(self, level_string: Optional[str] = None):
-        super().reset(level_string)
+        obs = super().reset(level_string)
 
         # reset agent's state
         self.has_key = False
@@ -60,6 +60,8 @@ class DrunkDwarfAgent(NarsAgent):
         # send reset info to NARS
         send_input(self.process, nal_now("RESET"))
         send_input(self.process, "100")
+
+        return obs
 
     def plan(self) -> list[list[int]]:
         if self.main_goal is None:
@@ -183,70 +185,123 @@ class DrunkDwarfAgent(NarsAgent):
             send_input(self.process, statement)
             get_raw_output(self.process)
 
-    def observe(self, complete=False) -> None:
+    def observe(self, observation: np.ndarray) -> None:
         env_state: dict[str, Any] = self.env.get_state()  # type: ignore
         num_sent_beliefs = 0
 
-        try:
-            avatar = next(
-                obj
-                for obj in env_state["Objects"]
-                if obj["Name"] == __class__.AVATAR_LABEL
-            )
-        except StopIteration:
-            return
+        def where_obj_type(obj_type: str, obs: np.ndarray) -> list[tuple[int, int]]:
+            xs, ys = obs[self.obj_names.index(obj_type)].nonzero()
+            return list(zip(xs, ys))
 
-        avatar_loc, avatar_orient = avatar["Location"], avatar["Orientation"]
+        # no threats in the environment, can assume avatar exists.
+        avatar_loc = where_obj_type(__class__.AVATAR_LABEL, observation)[0]
 
-        self.object_info["previous"] = self.object_info["current"]
-        obtypes = set(
-            obj["Name"]
-            for obj in env_state["Objects"]
-            if obj["Name"] != __class__.AVATAR_LABEL
-        )
+        def obj_label(obj_type: str, obloc: tuple[int, int]) -> Optional[str]:
+            x, y = obloc
+            avx, avy = avatar_loc
+            if y < avy:  # objects in front of the agent
+                if x < avx:  # leftward
+                    return f"L{obj_type}"
+                elif x > avx:  # rightward
+                    return f"R{obj_type}"
+                else:
+                    return f"A{obj_type}"  # Ahead
+            else:
+                return None
 
-        self.object_info["current"] = {
-            typ: {
-                f"{obj['Name']}{i+1}": obj["Location"]
-                for i, obj in enumerate(env_state["Objects"])
-                if obj["Name"] == typ
-                and manhattan_distance(avatar_loc, obj["Location"]) <= self.view_radius
-                and in_front(avatar_orient, avatar_loc, obj["Location"])
-            }
-            for typ in obtypes
+        visible_objects = {
+            obj_type: where_obj_type(obj_type, observation)
+            for obj_type in self.obj_names
+            if obj_type != __class__.AVATAR_LABEL
         }
+        obj_type_labels = [
+            [obj_label(obj_type, obloc) for obloc in visible_objects[obj_type]]
+            for obj_type in visible_objects.keys()
+        ]
+        obj_labels: list[str] = []
+        for labels in obj_type_labels:
+            obj_labels.extend(
+                [
+                    label + str(i + 1)
+                    for i, label in enumerate(labels)
+                    if label is not None
+                ]
+            )
 
-        # search for high-importance objects that are not in the current view
-        important_types = ["key", "door", "coffin_bed"]
-        for typ in important_types:
-            self.object_info["current"][typ] = {
-                f"{obj['Name']}{i+1}": obj["Location"]
-                for i, obj in enumerate(env_state["Objects"])
-                if obj["Name"] == typ
-            }
+        obj_concurrent_belief = (
+            f"({obj_labels[0]} &| {obj_labels[1]})"
+            if len(obj_labels) > 1
+            else obj_labels[0]
+        )
+        if len(obj_labels) > 2:
+            for i in range(2, len(obj_labels)):
+                obj_concurrent_belief = f"({obj_concurrent_belief} &| {obj_labels[i]})"
 
-        # HACK: for singletons change the name to type's name
-        for typ in self.object_info["current"]:
-            typ_info = self.object_info["current"][typ]
-            if len(typ_info) == 1:
-                self.object_info["current"][typ] = {
-                    typ: obj for obj in typ_info.values()
-                }
+        # nal_now("<" + " &| ".join(obj_labels) + ">")
+        # ic(obj_concurrent_belief)
+        self._send_beliefs([nal_now(obj_concurrent_belief)])
+        num_sent_beliefs += 1
 
-        for typ, obinfo in self.object_info["current"].items():
-            for obj_name in obinfo.keys():
-                if (
-                    typ in self.object_info["previous"]
-                    and obj_name not in self.object_info["previous"][typ]
-                ):
-                    send_input(self.process, nal_now(f"<{ext(obj_name)} --> [new]>"))
-                    num_sent_beliefs += 1
+        # try:
+        #     avatar = next(
+        #         obj
+        #         for obj in env_state["Objects"]
+        #         if obj["Name"] == __class__.AVATAR_LABEL
+        #     )
+        # except StopIteration:
+        #     return
 
-        pos_beliefs = self._pos_beliefs(avatar_loc, avatar_orient)
-        diff_beliefs = self._diff_beliefs(avatar_loc)
+        # avatar_loc, avatar_orient = avatar["Location"], avatar["Orientation"]
 
-        num_sent_beliefs += len(pos_beliefs) + len(diff_beliefs)
-        self._send_beliefs(pos_beliefs + diff_beliefs)
+        # self.object_info["previous"] = self.object_info["current"]
+        # obtypes = set(
+        #     obj["Name"]
+        #     for obj in env_state["Objects"]
+        #     if obj["Name"] != __class__.AVATAR_LABEL
+        # )
+
+        # self.object_info["current"] = {
+        #     typ: {
+        #         f"{obj['Name']}{i+1}": obj["Location"]
+        #         for i, obj in enumerate(env_state["Objects"])
+        #         if obj["Name"] == typ
+        #         and manhattan_distance(avatar_loc, obj["Location"]) <= self.view_radius
+        #         and in_front(avatar_orient, avatar_loc, obj["Location"])
+        #     }
+        #     for typ in obtypes
+        # }
+
+        # # search for high-importance objects that are not in the current view
+        # important_types = ["key", "door", "coffin_bed"]
+        # for typ in important_types:
+        #     self.object_info["current"][typ] = {
+        #         f"{obj['Name']}{i+1}": obj["Location"]
+        #         for i, obj in enumerate(env_state["Objects"])
+        #         if obj["Name"] == typ
+        #     }
+
+        # # HACK: for singletons change the name to type's name
+        # for typ in self.object_info["current"]:
+        #     typ_info = self.object_info["current"][typ]
+        #     if len(typ_info) == 1:
+        #         self.object_info["current"][typ] = {
+        #             typ: obj for obj in typ_info.values()
+        #         }
+
+        # for typ, obinfo in self.object_info["current"].items():
+        #     for obj_name in obinfo.keys():
+        #         if (
+        #             typ in self.object_info["previous"]
+        #             and obj_name not in self.object_info["previous"][typ]
+        #         ):
+        #             send_input(self.process, nal_now(f"<{ext(obj_name)} --> [new]>"))
+        #             num_sent_beliefs += 1
+
+        # pos_beliefs = self._pos_beliefs(avatar_loc, avatar_orient)
+        # diff_beliefs = self._diff_beliefs(avatar_loc)
+
+        # num_sent_beliefs += len(pos_beliefs) + len(diff_beliefs)
+        # self._send_beliefs(pos_beliefs + diff_beliefs)
         # ic("Sent pos beliefs:", pos_beliefs)
         # ic("Sent diff beliefs:", diff_beliefs)
         ic("Total beliefs sent:", num_sent_beliefs)
@@ -276,8 +331,8 @@ def demo_reach_key(symbol: str, agent: DrunkDwarfAgent) -> None:
         gym_actions = agent.determine_actions(
             {"executions": [{"operator": action, "arguments": []}]}
         )
-        _, reward, done, info = agent.env.step(gym_actions[0])
-        agent.observe()
+        obs, reward, done, info = agent.env.step(gym_actions[0])
+        agent.observe(obs)
 
         env_state = agent.env.get_state()  # type: ignore
         env_state["reward"] = reward

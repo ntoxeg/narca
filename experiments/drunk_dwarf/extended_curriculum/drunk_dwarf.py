@@ -62,7 +62,7 @@ if __name__ == "__main__":
         # f"<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
         # f"<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
     ]
-    background_knowledge = rel_pos_knowledge
+    background_knowledge = []
 
     key_goal_sym = "GOT_KEY"
     reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
