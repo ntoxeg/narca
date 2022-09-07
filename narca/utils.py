@@ -225,3 +225,25 @@ def abs_to_rel(avatar, op):
             dor = 7 - avatar_orient if avatar_orient != 3 else 0
 
     return ["^rotate_right"] * dor + ["^move_forwards"]
+
+
+# HyperState configs
+@dataclass
+class NARSConfig:
+    decision_threshold: float = 0.501
+    motor_babbling: float = 0.2
+
+
+@dataclass
+class AgentConfig:
+    view_radius: int = 1
+    think_ticks: int = 3
+
+
+@dataclass
+class Config:
+    nars: NARSConfig
+    agent: AgentConfig
+    num_episodes: int = 50
+    max_steps: int = 100
+    difficulty_level: int = 1
