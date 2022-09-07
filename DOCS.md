@@ -54,3 +54,11 @@ These beliefs rely on tracking state changes between the current and previous ti
 
 ### Special beliefs
 - `{$objname} -> [reached]. :|:` signifies that the object has been reached by the agent.
+
+### Alternative setup
+#### Concurrent events with simple labels
+Another, completely different approach is to simply create short labes that encode properties of objects
+and send them as a single statement with parallel events.
+
+For example, a statement like that can look like this: `(Lwall1 &| Awall3). :|:`, where `L` signifies something that is
+leftward and `A` represents something ahead.
