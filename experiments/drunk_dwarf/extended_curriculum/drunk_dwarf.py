@@ -62,7 +62,7 @@ if __name__ == "__main__":
         # f"<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
         # f"<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
     ]
-    background_knowledge = []
+    background_knowledge: list[str] = []
 
     key_goal_sym = "GOT_KEY"
     reach_key = [f"<({ext('key')} --> [reached]) =/> {key_goal_sym}>."]
@@ -82,7 +82,6 @@ if __name__ == "__main__":
         ENV_NAME,
         player_observer_type=gd.ObserverType.VECTOR,
         level=0,
-        new_step_api=True,
     )
     env.enable_history(True)  # type: ignore
 

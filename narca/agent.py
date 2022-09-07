@@ -29,7 +29,7 @@ class Agent(metaclass=ABCMeta):
         else:
             return self.env.reset(level_string=level_string)  # type: ignore
 
-    def step(self) -> tuple[Any, float, float, bool, Any]:
+    def step(self, observation: np.ndarray) -> tuple[Any, float, float, bool, Any]:
         actions = self.plan()
         obs = []
         reward = 0.0

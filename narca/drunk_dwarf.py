@@ -194,7 +194,7 @@ class DrunkDwarfAgent(NarsAgent):
             return list(zip(xs, ys))
 
         # no threats in the environment, can assume avatar exists.
-        avatar_loc = where_obj_type(__class__.AVATAR_LABEL, observation)[0]
+        avatar_loc = where_obj_type(self.__class__.AVATAR_LABEL, observation)[0]
 
         def obj_label(obj_type: str, obloc: tuple[int, int]) -> Optional[str]:
             x, y = obloc
@@ -212,7 +212,7 @@ class DrunkDwarfAgent(NarsAgent):
         visible_objects = {
             obj_type: where_obj_type(obj_type, observation)
             for obj_type in self.obj_names
-            if obj_type != __class__.AVATAR_LABEL
+            if obj_type != self.__class__.AVATAR_LABEL
         }
         obj_type_labels = [
             [obj_label(obj_type, obloc) for obloc in visible_objects[obj_type]]

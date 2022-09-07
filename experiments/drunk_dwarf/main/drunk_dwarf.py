@@ -1,9 +1,10 @@
+import argparse
 import logging
 import os
 from functools import partial
 
-import griddly  # noqa
 import gym
+import hyperstate
 import neptune.new as neptune
 from griddly import gd
 from icecream import ic
@@ -17,16 +18,9 @@ from narca.utils import *
 logging.basicConfig(filename="nars_drunk_dwarf.log", filemode="w", level=logging.DEBUG)
 logger = logging.getLogger("nars")
 
-NUM_EPISODES = 50
-MAX_ITERATIONS = 100
+
 ENV_NAME = "GDY-Drunk-Dwarf-v0"
 MAIN_TAG = "main"
-DIFFICULTY_LEVEL = 1
-
-THINK_TICKS = 3
-VIEW_RADIUS = 1
-MOTOR_BABBLING = 0.2
-DECISION_THRESHOLD = 0.6
 
 
 def key_check(_, info) -> bool:
@@ -41,18 +35,38 @@ def key_check(_, info) -> bool:
 
 
 if __name__ == "__main__":
-    try:
-        neprun = neptune.init(
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default=None, help="Path to config file")
+    parser.add_argument("--hps", nargs="+", help="Override hyperparameter value")
+    parser.add_argument(
+        "--log_neptune",
+        action="store_true",
+        default=False,
+        help="Enable logging to Neptune",
+    )
+    parser.add_argument(
+        "--log_tensorboard",
+        action="store_true",
+        default=False,
+        help="Enable logging to TensorBoard",
+    )
+    args = parser.parse_args()
+    config = hyperstate.load(Config, file=args.config, overrides=args.hps)
+    logger.info("Run configuration: %s", config)
+
+    neprun = (
+        neptune.init(
             project=os.environ["NEPTUNE_PROJECT"],
-            tags=[ENV_NAME, MAIN_TAG, f"difficulty:{DIFFICULTY_LEVEL}"],
+            tags=[ENV_NAME, MAIN_TAG, f"difficulty:{config.difficulty_level}"],
         )
-    except KeyError:
-        neprun = None
+        if args.log_neptune
+        else None
+    )
 
     env = gym.make(
         ENV_NAME,
         player_observer_type=gd.ObserverType.VECTOR,
-        level=DIFFICULTY_LEVEL - 1,
+        level=config.difficulty_level - 1,
     )
     env.enable_history(True)  # type: ignore
 
@@ -79,11 +93,11 @@ if __name__ == "__main__":
 
     agent = DrunkDwarfAgent(
         env,
-        think_ticks=THINK_TICKS,
-        view_radius=VIEW_RADIUS,
+        think_ticks=config.agent.think_ticks,
+        view_radius=config.agent.view_radius,
         background_knowledge=background_knowledge,
-        motor_babbling=MOTOR_BABBLING,
-        decision_threshold=DECISION_THRESHOLD,
+        motor_babbling=config.nars.motor_babbling,
+        decision_threshold=config.nars.decision_threshold,
     )
 
     KEY_GOAL = Goal(
@@ -116,12 +130,12 @@ if __name__ == "__main__":
     if neprun is not None:
         neprun["parameters"] = {
             "goals": [g.symbol for g in goals],
-            "think_ticks": THINK_TICKS,
-            "view_radius": agent.view_radius,
-            "num_episodes": NUM_EPISODES,
-            "max_iterations": MAX_ITERATIONS,
-            "motor_babbling": MOTOR_BABBLING,
-            "decision_threshold": DECISION_THRESHOLD,
+            "think_ticks": config.agent.think_ticks,
+            "view_radius": config.agent.view_radius,
+            "num_episodes": config.num_episodes,
+            "max_iterations": config.max_steps,
+            "motor_babbling": config.nars.motor_babbling,
+            "decision_threshold": config.nars.decision_threshold,
         }
 
         def nep_ep_callback(run_info: dict):
@@ -138,10 +152,10 @@ if __name__ == "__main__":
 
     # Run the agent
     runner.run(
-        NUM_EPISODES,
-        MAX_ITERATIONS,
-        log_tb=True,
-        tb_comment_suffix=f"drunk_dwarf-{MAIN_TAG}:{DIFFICULTY_LEVEL}",
+        config.num_episodes,
+        config.max_steps,
+        log_tb=args.log_tensorboard,
+        tb_comment_suffix=f"drunk_dwarf-{MAIN_TAG}:{config.difficulty_level}",
         callbacks=callbacks,
     )
     if neprun is not None:
