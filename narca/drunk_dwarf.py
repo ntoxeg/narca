@@ -4,10 +4,10 @@ from time import sleep
 
 import gym
 import numpy as np
+from narpyn.ona.nar import *
 
 from .agent import Agent, NarsAgent
 from .astar import pathfind
-from .nar import *
 from .utils import *
 
 
@@ -227,19 +227,19 @@ class DrunkDwarfAgent(NarsAgent):
                 ]
             )
 
-        obj_concurrent_belief = (
-            f"({obj_labels[0]} &| {obj_labels[1]})"
-            if len(obj_labels) > 1
-            else obj_labels[0]
-        )
-        if len(obj_labels) > 2:
-            for i in range(2, len(obj_labels)):
-                obj_concurrent_belief = f"({obj_concurrent_belief} &| {obj_labels[i]})"
+        # obj_concurrent_belief = (
+        #     f"({obj_labels[0]} &| {obj_labels[1]})"
+        #     if len(obj_labels) > 1
+        #     else obj_labels[0]
+        # )
+        # if len(obj_labels) > 2:
+        #     for i in range(2, len(obj_labels)):
+        #         obj_concurrent_belief = f"({obj_concurrent_belief} &| {obj_labels[i]})"
 
         # nal_now("<" + " &| ".join(obj_labels) + ">")
         # ic(obj_concurrent_belief)
-        self._send_beliefs([nal_now(obj_concurrent_belief)])
-        num_sent_beliefs += 1
+        # self._send_beliefs([nal_now(obj_concurrent_belief)])
+        # num_sent_beliefs += 1
 
         # try:
         #     avatar = next(
@@ -301,10 +301,13 @@ class DrunkDwarfAgent(NarsAgent):
 
         # num_sent_beliefs += len(pos_beliefs) + len(diff_beliefs)
         # self._send_beliefs(pos_beliefs + diff_beliefs)
+        blfs = [nal_now(obj) for obj in obj_labels]
+        self._send_beliefs(blfs)
+        num_sent_beliefs = len(blfs)
         # ic("Sent pos beliefs:", pos_beliefs)
         # ic("Sent diff beliefs:", diff_beliefs)
         ic("Total beliefs sent:", num_sent_beliefs)
-        # sleep(1)
+        sleep(1)
 
 
 class DrunkDwarfRandom(Agent):

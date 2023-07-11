@@ -5,10 +5,10 @@ from time import sleep
 import gym
 import numpy as np
 from griddly.util.rllib.environment.level_generator import LevelGenerator
+from narpyn.ona.nar import *
 
 from .agent import NarsAgent
 from .astar import pathfind
-from .nar import *
 from .utils import *
 
 
@@ -31,7 +31,6 @@ class ZeldaLevelGenerator(LevelGenerator):
         self._max_spiders = config.get("max_spiders", 3)
 
     def _place_walls(self, map_: np.chararray) -> np.chararray:
-
         # top/bottom wall
         wall_y = np.array([0, self._height - 1])
         map_[:, wall_y] = ZeldaLevelGenerator.WALL

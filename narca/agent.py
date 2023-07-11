@@ -7,10 +7,10 @@ import gym
 import numpy as np
 from griddly import gd
 from griddly.util.rllib.environment.level_generator import LevelGenerator
+from narpyn.ona.nar import get_raw_output, send_input, setup_nars
+from narpyn.ona.narsese import Goal, nal_now
 from tensorboardX import SummaryWriter
 
-from .nar import get_raw_output, send_input, setup_nars
-from .narsese import Goal, nal_now
 from .utils import NARS_PATH
 
 

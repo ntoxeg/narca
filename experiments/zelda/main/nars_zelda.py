@@ -4,11 +4,11 @@ from functools import partial
 
 import griddly  # noqa
 import gym
-import neptune.new as neptune
+import neptune
 from griddly import gd
+from narpyn.ona.nar import *
 
 from narca.agent import Runner
-from narca.nar import *
 from narca.utils import *
 from narca.zelda import ZeldaAgent
 

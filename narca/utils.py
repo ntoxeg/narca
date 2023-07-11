@@ -4,9 +4,8 @@ from pathlib import Path
 from typing import Optional
 
 from icecream import ic
-
-from .nar import send_input
-from .narsese import *
+from narpyn.ona.nar import send_input
+from narpyn.ona.narsese import *
 
 NARS_PATH = Path(os.environ["NARS_HOME"])
 

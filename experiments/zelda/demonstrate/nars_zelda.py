@@ -6,8 +6,8 @@ import griddly  # noqa
 import gym
 import pexpect
 from griddly import gd
+from narpyn.ona.nar import *
 
-from narca.nar import *
 from narca.utils import *
 from narca.zelda import Runner, ZeldaAgent, ZeldaLevelGenerator
 

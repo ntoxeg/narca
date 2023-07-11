@@ -4,10 +4,10 @@ from functools import partial
 import griddly  # noqa
 import gym
 from griddly import gd
+from narpyn.ona.nar import *
 
 from narca.agent import Runner
 from narca.drunk_dwarf import DrunkDwarfAgent
-from narca.nar import *
 from narca.utils import *
 
 # setup a logger for nars output

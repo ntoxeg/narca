@@ -5,13 +5,7 @@ This repository hosts both a library that facilitates interfacing OpenNARS for A
 a bunch of experiments using Griddly.
 
 ## Installation
-You need to have OpenNARS-For-Applications installed somewhere. It is expected that you will export a `NARS_HOME` environment
-variable to specify where it is built.
-
 The recommended way to install dependencies is with Poetry: `poetry install`. `poetry shell` will open a shell with the virtual environment activated.
-
-Additionally, dependencies are listed in the `env.yml` file, that can be used to create a Conda environment (might be outdated).
-`lock.yml` is a lock-file that you can use to make a reproducible environment, Conda might fail to create it though.
 
 [Griddly](https://github.com/Bam4d/Griddly) requires to install Vulkan SDK, refer to its README.
 

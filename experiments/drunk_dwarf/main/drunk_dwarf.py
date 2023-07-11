@@ -5,12 +5,12 @@ from functools import partial
 
 import gym
 import hyperstate
-import neptune.new as neptune
+import neptune
 from griddly import gd
+from narpyn.ona.nar import *
 
 from narca.agent import Runner
 from narca.drunk_dwarf import DrunkDwarfAgent
-from narca.nar import *
 from narca.utils import *
 
 # setup a logger for nars output
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     logger.info("Run configuration: %s", config)
 
     neprun = (
-        neptune.init(
+        neptune.init_run(
             project=os.environ["NEPTUNE_PROJECT"],
             tags=[ENV_NAME, MAIN_TAG, f"difficulty:{config.difficulty_level}"],
         )
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     callbacks = []
     if neprun is not None:
         neprun["parameters"] = {
-            "goals": [g.symbol for g in goals],
+            "goals": str([g.symbol for g in goals]),
             "think_ticks": config.agent.think_ticks,
             "view_radius": config.agent.view_radius,
             "num_episodes": config.num_episodes,
