@@ -6,8 +6,6 @@ import griddly  # noqa
 import gym
 import pexpect
 from griddly import gd
-from icecream import ic
-from tensorboardX import SummaryWriter
 
 from narca.nar import *
 from narca.utils import *
@@ -92,9 +90,9 @@ if __name__ == "__main__":
         f"<(<($obj * #location) --> at> &/ <({ext('SELF')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
     ]
     rel_pos_knowledge = [
-        f"<(<$obj --> [ahead]> &/ ^move_forwards) =/> <$obj --> [reached]>>.",
-        f"<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
-        f"<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
+        "<(<$obj --> [ahead]> &/ ^move_forwards) =/> <$obj --> [reached]>>.",
+        "<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
+        "<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
     ]
     background_knowledge = rel_pos_knowledge
 

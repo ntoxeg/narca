@@ -5,7 +5,6 @@ import griddly  # noqa
 import gym
 import neptune.new as neptune
 from griddly import gd
-from icecream import ic
 
 from narca.drunk_dwarf import DrunkDwarfRandom
 from narca.nar import *

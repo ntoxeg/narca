@@ -6,7 +6,6 @@ import griddly  # noqa
 import gym
 import neptune.new as neptune
 from griddly import gd
-from icecream import ic
 
 from narca.agent import Runner
 from narca.drunk_dwarf import DrunkDwarfAgent
@@ -57,7 +56,7 @@ if __name__ == "__main__":
         f"<(<($obj * #location) --> at> &/ <({ext('SELF')} * #location) --> ^goto>) =/> <$obj --> [reached]>>.",
     ]
     rel_pos_knowledge = [
-        f"<(<$obj --> [ahead]> &/ ^move_forwards) =/> <$obj --> [reached]>>.",
+        "<(<$obj --> [ahead]> &/ ^move_forwards) =/> <$obj --> [reached]>>.",
         # f"<(<$obj --> [leftward]> &/ ^move_forwards &/ ^rotate_left) =/> <$obj --> [ahead]>>.",
         # f"<(<$obj --> [rightward]> &/ ^move_forwards &/ ^rotate_right) =/> <$obj --> [ahead]>>.",
     ]

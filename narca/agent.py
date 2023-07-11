@@ -7,10 +7,9 @@ import gym
 import numpy as np
 from griddly import gd
 from griddly.util.rllib.environment.level_generator import LevelGenerator
-from icecream import ic
 from tensorboardX import SummaryWriter
 
-from .nar import get_output, get_raw_output, send_input, setup_nars
+from .nar import get_raw_output, send_input, setup_nars
 from .narsese import Goal, nal_now
 from .utils import NARS_PATH
 
@@ -44,7 +43,6 @@ class Agent(metaclass=ABCMeta):
 
     @abstractmethod
     def plan(self) -> list[list[int]]:
-
         return [[]]
 
 

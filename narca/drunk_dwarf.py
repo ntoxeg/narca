@@ -4,7 +4,6 @@ from time import sleep
 
 import gym
 import numpy as np
-from griddly.util.rllib.environment.level_generator import LevelGenerator
 
 from .agent import Agent, NarsAgent
 from .astar import pathfind
@@ -186,7 +185,7 @@ class DrunkDwarfAgent(NarsAgent):
             get_raw_output(self.process)
 
     def observe(self, observation: np.ndarray) -> None:
-        env_state: dict[str, Any] = self.env.get_state()  # type: ignore
+        self.env.get_state()  # type: ignore
         num_sent_beliefs = 0
 
         def where_obj_type(obj_type: str, obs: np.ndarray) -> list[tuple[int, int]]:
